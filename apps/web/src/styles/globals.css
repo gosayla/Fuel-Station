@@ -16,7 +16,7 @@ body {
 [dir='ltr'] { direction: ltr; }
 
 /* Arabic / RTL font override — must beat `body { font-family: Inter }` */
-[dir='rtl'] body { font-family: 'Cairo', sans-serif; }
+[dir='rtl'] body { font-family: 'Tajawal', sans-serif; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
