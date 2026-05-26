@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet, NavLink, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/auth.store';
+import { api } from '../lib/api';
 import {
   LayoutDashboard, Fuel, ShoppingCart, Users, Wallet,
   BarChart3, LogOut, Fuel as FuelIcon, Truck, Menu, X, UserCog,
@@ -25,7 +26,8 @@ export function DashboardLayout() {
   const { user, clearAuth } = useAuthStore();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await api.post('/auth/logout'); } catch { /* ignore */ }
     clearAuth();
     navigate('/login');
   };

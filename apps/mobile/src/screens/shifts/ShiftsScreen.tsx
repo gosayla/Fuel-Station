@@ -4,7 +4,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { format, formatDuration, intervalToDuration } from 'date-fns';
+import { format, formatDuration, intervalToDuration, type Locale } from 'date-fns';
+import { ar, bn, hi, enUS } from 'date-fns/locale';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/auth.store';
 import { Colors, Typography, Radii, Spacing, Shadows } from '../../theme';
@@ -15,10 +16,12 @@ const STATUS_CFG_BASE: Record<string, { color: string; icon: string }> = {
   reconciled: { color: Colors.success, icon: 'check-all'           },
 };
 
-function dur(start: string, end?: string, ongoing = 'Ongoing') {
+const DATEFNS_LOCALE: Record<string, Locale> = { ar, bn, hi, ur: ar, en: enUS };
+
+function dur(start: string, end?: string, ongoing = 'Ongoing', locale: Locale = enUS) {
   if (!end) return ongoing;
   const d = intervalToDuration({ start: new Date(start), end: new Date(end) });
-  return formatDuration(d, { format: ['hours', 'minutes'] }) || '<1 min';
+  return formatDuration(d, { format: ['hours', 'minutes'], locale }) || '<1 min';
 }
 
 function ShiftCard({ shift, onPress }: { shift: any; onPress: () => void }) {
@@ -26,7 +29,10 @@ function ShiftCard({ shift, onPress }: { shift: any; onPress: () => void }) {
   const rtl = i18n.dir() === 'rtl';
   const baseCfg = STATUS_CFG_BASE[shift.status] ?? STATUS_CFG_BASE.open;
   const cfg = { ...baseCfg, label: t(`shifts.status.${shift.status}`) };
-  const fmt = (n: any) => `SAR ${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmt = (n: any) => {
+    const amount = Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return rtl ? `${amount} ريال` : `SAR ${amount}`;
+  };
 
   return (
     <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.75}>
@@ -36,20 +42,20 @@ function ShiftCard({ shift, onPress }: { shift: any; onPress: () => void }) {
           <MaterialCommunityIcons name="account" size={20} color={baseCfg.color} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={s.empName}>{shift.employeeName ?? shift.employeeId}</Text>
-          <Text style={s.time}>
+          <Text style={[s.empName, { textAlign: !rtl ? 'right' : 'left' }]}>{shift.employeeName ?? shift.employeeId}</Text>
+          <Text style={[s.time, { textAlign: !rtl ? 'right' : 'left' }]}>
             {format(new Date(shift.startedAt), 'MMM d, hh:mm a')}
             {shift.closedAt ? ` → ${format(new Date(shift.closedAt), 'hh:mm a')}` : ''}
           </Text>
         </View>
         <View style={[s.statusBadge, { backgroundColor: baseCfg.color + '18' }]}>
-          <Text style={[s.statusText, { color: baseCfg.color }]}>{cfg.label.toUpperCase()}</Text>
+          <Text style={[s.statusText, { color: baseCfg.color }, { textAlign: !rtl ? 'right' : 'left' }]}>{cfg.label.toUpperCase()}</Text>
         </View>
         <MaterialCommunityIcons
           name={rtl ? 'chevron-left' : 'chevron-right'}
           size={18}
           color={Colors.textMuted}
-          style={{ marginStart: 4 }}
+          style={{ marginStart: !rtl ? 0 : 4, marginEnd: !rtl ? 4 : 0 }}
         />
       </View>
 
@@ -62,11 +68,11 @@ function ShiftCard({ shift, onPress }: { shift: any; onPress: () => void }) {
           <Text style={s.statLbl}>{t('shifts.revenue').toUpperCase()}</Text>
         </View>
         <View style={s.stat}>
-          <Text style={s.statVal}>{Number(shift.totalLitersSold).toFixed(0)} L</Text>
+          <Text style={s.statVal}>{Number(shift.totalLitersSold).toFixed(0)} {t('common.liters')}</Text>
           <Text style={s.statLbl}>{t('shifts.litersSold').toUpperCase()}</Text>
         </View>
         <View style={s.stat}>
-          <Text style={s.statVal}>{dur(shift.startedAt, shift.closedAt, t('shifts.ongoing'))}</Text>
+          <Text style={s.statVal}>{dur(shift.startedAt, shift.closedAt, t('shifts.ongoing'), DATEFNS_LOCALE[i18n.language] ?? enUS)}</Text>
           <Text style={s.statLbl}>{t('shifts.duration').toUpperCase()}</Text>
         </View>
         {shift.discrepancy != null && (
@@ -85,7 +91,10 @@ function ShiftCard({ shift, onPress }: { shift: any; onPress: () => void }) {
 function ActiveShiftBanner({ shift, onClose }: { shift: any; onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === 'rtl';
-  const fmt = (n: any) => Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt = (n: any) => {
+    const amount = Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return rtl ? `${amount} ريال` : `SAR ${amount}`;
+  };
   const startTime = new Date(shift.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const startDate = new Date(shift.startedAt).toLocaleDateString([], { day: 'numeric', month: 'short' });
 
@@ -103,17 +112,17 @@ function ActiveShiftBanner({ shift, onClose }: { shift: any; onClose: () => void
 
       <View style={s.activeBannerStats}>
         <View style={s.activeStat}>
-          <Text style={s.activeStatVal}>{Number(shift.totalLitersSold ?? 0).toFixed(0)} L</Text>
+          <Text style={s.activeStatVal}>{Number(shift.totalLitersSold ?? 0).toFixed(0)} {t('common.liters')}</Text>
           <Text style={s.activeStatLbl}>{t('shifts.litersSold').toUpperCase()}</Text>
         </View>
         <View style={s.activeStatDiv} />
         <View style={s.activeStat}>
-          <Text style={s.activeStatVal}>SAR {fmt(shift.totalRevenue)}</Text>
+          <Text style={s.activeStatVal}>{fmt(shift.totalRevenue)}</Text>
           <Text style={s.activeStatLbl}>{t('shifts.revenue').toUpperCase()}</Text>
         </View>
         <View style={s.activeStatDiv} />
         <View style={s.activeStat}>
-          <Text style={s.activeStatVal}>SAR {fmt(shift.cashRevenue)}</Text>
+          <Text style={s.activeStatVal}>{fmt(shift.cashRevenue)}</Text>
           <Text style={s.activeStatLbl}>{t('shifts.cashRevenue').toUpperCase()}</Text>
         </View>
       </View>
@@ -239,9 +248,9 @@ const s = StyleSheet.create({
   statusText:  { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
   sep:         { height: 1, backgroundColor: Colors.border, marginVertical: Spacing.md },
   statsRow:    { flexDirection: 'row' },
-  stat:        { flex: 1, alignItems: 'center' },
-  statVal:     { fontSize: 13, fontWeight: '700', color: Colors.textPrimary },
-  statLbl:     { fontSize: 9, color: Colors.textMuted, marginTop: 2, letterSpacing: 0.4 },
+  stat:        { flex: 1, alignItems: 'center', justifyContent: 'space-between' },
+  statVal:     { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
+  statLbl:     { fontSize: 9, color: Colors.textMuted, marginTop: 2, letterSpacing: 0.4, textAlign: 'center' },
   empty:       { alignItems: 'center', marginTop: 80, gap: 12 },
   emptyText:   { ...Typography.body, color: Colors.textMuted },
 

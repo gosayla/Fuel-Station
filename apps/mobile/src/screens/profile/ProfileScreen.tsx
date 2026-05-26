@@ -16,6 +16,7 @@ import { MMKV } from 'react-native-mmkv';
 import RNRestart from 'react-native-restart';
 import { LANGUAGE_OPTIONS, RTL_LANGUAGES, type SupportedLanguage } from '@fuel-station/shared';
 import { useAuthStore } from '../../store/auth.store';
+import { api } from '../../lib/api';
 import { Colors, Typography, Radii, Spacing } from '../../theme';
 
 const mmkv = new MMKV({ id: 'fuel-station' });
@@ -78,7 +79,14 @@ export function ProfileScreen() {
       message: t('profile.logOutConfirm'),
       buttons: [
         { text: t('common.cancel'), style: 'cancel' },
-        { text: t('profile.logOut'), style: 'destructive', onPress: clearAuth },
+        {
+          text: t('profile.logOut'),
+          style: 'destructive',
+          onPress: async () => {
+            try { await api.post('/auth/logout'); } catch { /* ignore */ }
+            clearAuth();
+          },
+        },
       ],
     });
   }
