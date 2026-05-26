@@ -4,6 +4,7 @@ import { Repository, Between } from 'typeorm';
 import { Sale, PaymentMethod } from './sale.entity';
 import { TanksService } from '../tanks/tanks.service';
 import { ShiftsService } from '../shifts/shifts.service';
+import { CreditLedgerEntry, CreditLedgerType } from '../accounts/account.entity';
 import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateSaleDto {
@@ -18,6 +19,7 @@ export class CreateSaleDto {
 export class SalesService {
   constructor(
     @InjectRepository(Sale) private repo: Repository<Sale>,
+    @InjectRepository(CreditLedgerEntry) private creditLedgerRepo: Repository<CreditLedgerEntry>,
     private tanksService: TanksService,
     private shiftsService: ShiftsService,
   ) {}
@@ -42,7 +44,22 @@ export class SalesService {
       totalAmount,
     });
     await this.shiftsService.addSaleToShift(shift.id, dto.liters, totalAmount, dto.paymentMethod || PaymentMethod.CASH);
-    return this.repo.save(sale);
+    const saved = await this.repo.save(sale);
+
+    if (saved.paymentMethod === PaymentMethod.CREDIT) {
+      await this.creditLedgerRepo.save(
+        this.creditLedgerRepo.create({
+          stationId,
+          type: CreditLedgerType.CHARGE,
+          amount: totalAmount,
+          saleId: saved.id,
+          createdBy: employeeId,
+          notes: 'Credit sale',
+        }),
+      );
+    }
+
+    return saved;
   }
 
   findAll(stationId: string, from?: Date, to?: Date, employeeId?: string): Promise<Sale[]> {

@@ -148,7 +148,6 @@ export function CollectShiftScreen() {
   const [cashReceived, setCashReceived] = useState('');
   const [cashAccountId, setCashAccountId] = useState<string | null>(null);
   const [bankAccountId, setBankAccountId] = useState<string | null>(null);
-  const [creditAccountId, setCreditAccountId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
 
   // ── Data ──
@@ -174,7 +173,6 @@ export function CollectShiftScreen() {
 
   const safeAccounts   = (accounts ?? []).filter((a: any) => a.type === 'safe');
   const bankAccounts   = (accounts ?? []).filter((a: any) => a.type === 'bank');
-  const creditAccounts = (accounts ?? []).filter((a: any) => a.type === 'credit');
 
   // ── Mutation ──
   const mutation = useMutation({
@@ -207,7 +205,6 @@ export function CollectShiftScreen() {
       shiftId:        shift.id,
       cashAccountId,
       bankAccountId:   cardAmount > 0 ? (bankAccountId ?? undefined) : undefined,
-      creditAccountId: creditAmount > 0 ? (creditAccountId ?? undefined) : undefined,
       amountReceived:  received,
       notes:           notes.trim() || undefined,
     });
@@ -379,14 +376,10 @@ export function CollectShiftScreen() {
             )}
 
             {creditAmount > 0 && (
-              <AccountPicker
-                label={t('accounts.creditToCredit')}
-                placeholder={t('accounts.selectCredit')}
-                accounts={creditAccounts}
-                value={creditAccountId}
-                onChange={setCreditAccountId}
-                rtl={rtl}
-              />
+              <View style={[s.infoRow, { flexDirection: rtl ? 'row' : 'row-reverse' }]}>
+                <Text style={s.infoLabel}>{t('accounts.creditReceivableLabel', { defaultValue: 'Credit (Receivable)' })}</Text>
+                <Text style={s.noSalesBadge}>{t('accounts.pendingCollection', { defaultValue: 'Pending collection' })}</Text>
+              </View>
             )}
             {creditAmount === 0 && (
               <View style={[s.infoRow, { flexDirection: rtl ? 'row' : 'row-reverse' }]}>

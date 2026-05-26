@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, SafeAreaView, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, SafeAreaView, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator, Modal, TextInput } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { format } from 'date-fns';
 import { api } from '../../lib/api';
+import { showAlert } from '../../lib/alert';
 import { Colors, Typography, Radii, Spacing, Shadows } from '../../theme';
 
 const ACCOUNT_CFG: Record<string, { icon: string; color: string; bg: string }> = {
@@ -52,6 +53,12 @@ export function AccountsScreen() {
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === 'rtl';
   const [selId, setSelId] = useState<string | null>(null);
+  const [collectOpen, setCollectOpen] = useState(false);
+  const [collectAmount, setCollectAmount] = useState('');
+  const [collectMethod, setCollectMethod] = useState<'cash' | 'card'>('cash');
+  const [collectNotes, setCollectNotes] = useState('');
+  const [collectAccountId, setCollectAccountId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data: accounts, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['accounts'],
@@ -65,10 +72,55 @@ export function AccountsScreen() {
     enabled: !!selId,
   });
 
+  const { data: creditSummary } = useQuery({
+    queryKey: ['credit-summary'],
+    queryFn: () => api.get('/accounts/credit-summary').then((r) => r.data),
+  });
+
+  const collectMutation = useMutation({
+    mutationFn: (body: any) => api.post('/accounts/collect-credit', body).then((r) => r.data),
+    onSuccess: () => {
+      setCollectOpen(false);
+      setCollectAmount('');
+      setCollectNotes('');
+      setCollectAccountId(null);
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['account-tx'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-summary'] });
+    },
+    onError: (err: any) => {
+      showAlert({ title: t('common.error'), message: err?.response?.data?.message || t('common.error'), variant: 'error' });
+    },
+  });
+
   const selected = accounts?.find((a: any) => a.id === selId);
   const selCfg   = ACCOUNT_CFG[selected?.type] ?? ACCOUNT_CFG.bank;
   const selBal   = selected ? Number(selected.balance) : null;
   const totalBal = accounts?.reduce((sum: number, a: any) => sum + Number(a.balance), 0) ?? 0;
+  const outstandingCredit = Number((creditSummary as any)?.outstanding ?? 0);
+  const collectAccounts = (accounts ?? []).filter((a: any) => collectMethod === 'cash' ? a.type === 'safe' : a.type === 'bank');
+
+  const submitCollectCredit = () => {
+    const amount = Number(collectAmount || 0);
+    if (!collectAccountId) {
+      showAlert({ title: t('common.error'), message: t('common.selectAccount'), variant: 'error' });
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showAlert({ title: t('common.error'), message: t('common.invalidAmount'), variant: 'error' });
+      return;
+    }
+    if (amount > outstandingCredit) {
+      showAlert({ title: t('common.error'), message: `${t('accounts.maxAllowed', { defaultValue: 'Max allowed' })}: SAR ${outstandingCredit.toFixed(2)}`, variant: 'error' });
+      return;
+    }
+    collectMutation.mutate({
+      paymentMethod: collectMethod,
+      toAccountId: collectAccountId,
+      amount,
+      notes: collectNotes.trim() || undefined,
+    });
+  };
 
   return (
     <SafeAreaView style={s.safe}>
@@ -113,6 +165,22 @@ export function AccountsScreen() {
           </ScrollView>
         )}
 
+        <View style={s.collectRow}>
+          <View>
+            <Text style={s.collectLabel}>{t('accounts.outstandingCredit', { defaultValue: 'Outstanding Credit' })}</Text>
+            <Text style={s.collectValue}>SAR {outstandingCredit.toFixed(2)}</Text>
+          </View>
+          <TouchableOpacity
+            style={[s.collectBtn, outstandingCredit <= 0 && { opacity: 0.6 }]}
+            onPress={() => setCollectOpen(true)}
+            disabled={outstandingCredit <= 0}
+            activeOpacity={0.85}
+          >
+            <MaterialCommunityIcons name="cash-check" size={16} color={Colors.bgPrimary} />
+            <Text style={s.collectBtnText}>{t('accounts.collectCreditTitle', { defaultValue: 'Collect Credit' })}</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* ── Selected account hero ── */}
         {selected && (
           <View style={[s.heroCard, { borderColor: selCfg.color + '40', flexDirection: rtl ? 'row' : 'row-reverse' }]}>
@@ -155,6 +223,66 @@ export function AccountsScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal visible={collectOpen} transparent animationType="fade" onRequestClose={() => setCollectOpen(false)}>
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>{t('accounts.collectCreditTitle', { defaultValue: 'Collect Credit' })}</Text>
+            <Text style={s.modalSub}>{t('accounts.outstandingCredit', { defaultValue: 'Outstanding Credit' })}: SAR {outstandingCredit.toFixed(2)}</Text>
+
+            <Text style={s.modalLabel}>{t('accounts.collectionMethod', { defaultValue: 'Collection Method' })}</Text>
+            <View style={s.methodRow}>
+              <TouchableOpacity style={[s.methodBtn, collectMethod === 'cash' && s.methodBtnActive]} onPress={() => { setCollectMethod('cash'); setCollectAccountId(null); }}>
+                <Text style={[s.methodBtnText, collectMethod === 'cash' && s.methodBtnTextActive]}>{t('common.cash')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.methodBtn, collectMethod === 'card' && s.methodBtnActive]} onPress={() => { setCollectMethod('card'); setCollectAccountId(null); }}>
+                <Text style={[s.methodBtnText, collectMethod === 'card' && s.methodBtnTextActive]}>{t('common.card')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={s.modalLabel}>{t('common.selectAccount')}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.accountPickRow}>
+              {collectAccounts.map((a: any) => (
+                <TouchableOpacity
+                  key={a.id}
+                  style={[s.accountPick, collectAccountId === a.id && s.accountPickActive]}
+                  onPress={() => setCollectAccountId(a.id)}
+                >
+                  <Text style={[s.accountPickText, collectAccountId === a.id && s.accountPickTextActive]}>{a.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={s.modalLabel}>{t('common.amount')}</Text>
+            <TextInput
+              style={s.modalInput}
+              keyboardType="decimal-pad"
+              value={collectAmount}
+              onChangeText={setCollectAmount}
+              placeholder="0.00"
+              placeholderTextColor={Colors.textMuted}
+            />
+
+            <Text style={s.modalLabel}>{t('accounts.notes')} ({t('common.optional')})</Text>
+            <TextInput
+              style={s.modalInput}
+              value={collectNotes}
+              onChangeText={setCollectNotes}
+              placeholder={t('accounts.form.reasonPlaceholder')}
+              placeholderTextColor={Colors.textMuted}
+            />
+
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.modalCancel} onPress={() => setCollectOpen(false)}>
+                <Text style={s.modalCancelText}>{t('common.close')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.modalSubmit, collectMutation.isPending && { opacity: 0.7 }]} onPress={submitCollectCredit} disabled={collectMutation.isPending}>
+                <Text style={s.modalSubmitText}>{t('accounts.collectCreditTitle', { defaultValue: 'Collect Credit' })}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -172,6 +300,32 @@ const s = StyleSheet.create({
   totalPillVal: { fontSize: 15, fontWeight: '800', color: Colors.textPrimary },
 
   content:      { paddingBottom: 40 },
+
+  collectRow:   {
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.md,
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radii.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  collectLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '600' },
+  collectValue: { fontSize: 18, color: Colors.warning, fontWeight: '800', marginTop: 2 },
+  collectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.warning,
+    borderRadius: Radii.md,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  collectBtnText: { color: Colors.bgPrimary, fontSize: 12, fontWeight: '800' },
 
   // Account tabs
   tabsRow:      { paddingHorizontal: Spacing.xl, gap: 10, paddingBottom: Spacing.md },
@@ -201,4 +355,76 @@ const s = StyleSheet.create({
 
   empty:           { alignItems: 'center', marginTop: 48, gap: 10 },
   emptyText:       { fontSize: 13, color: Colors.textMuted },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xl,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: Colors.bgCard,
+    borderRadius: Radii.xl,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.lg,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary },
+  modalSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 4, marginBottom: 12 },
+  modalLabel: { fontSize: 12, color: Colors.textSecondary, fontWeight: '600', marginTop: 8, marginBottom: 6 },
+  methodRow: { flexDirection: 'row', gap: 8 },
+  methodBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: Colors.bgPrimary,
+  },
+  methodBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  methodBtnText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '700' },
+  methodBtnTextActive: { color: Colors.primary },
+  accountPickRow: { gap: 8 },
+  accountPick: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.full,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: Colors.bgPrimary,
+  },
+  accountPickActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  accountPickText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  accountPickTextActive: { color: Colors.primary },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.bgPrimary,
+    color: Colors.textPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  modalActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  modalCancel: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radii.md,
+    alignItems: 'center',
+    paddingVertical: 11,
+  },
+  modalCancelText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 13 },
+  modalSubmit: {
+    flex: 1,
+    borderRadius: Radii.md,
+    backgroundColor: Colors.warning,
+    alignItems: 'center',
+    paddingVertical: 11,
+  },
+  modalSubmitText: { color: Colors.bgPrimary, fontWeight: '800', fontSize: 13 },
 });

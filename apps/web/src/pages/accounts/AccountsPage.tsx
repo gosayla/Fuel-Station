@@ -120,7 +120,7 @@ function StatementDrawer({ account, onClose }: { account: Account; onClose: () =
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-medium text-white truncate">
-                        {t(`accounts.categories.${tx.category}`) || tx.category}
+                        {t(`accounts.categories.${tx.category}`, { defaultValue: tx.category.replace('_', ' ') })}
                         </p>
                         <p className={clsx('text-sm font-bold tabular-nums shrink-0', tx.type === 'credit' ? 'text-success' : 'text-danger')}>
                           {tx.type === 'credit' ? '+' : '-'}SAR {Number(tx.amount).toFixed(2)}
@@ -218,13 +218,13 @@ const collectSchema = z.object({
   shiftId: z.string().min(1, 'Select a shift'),
   cashAccountId: z.string().min(1, 'Select cash safe'),
   bankAccountId: z.string().optional(),
-  creditAccountId: z.string().optional(),
   amountReceived: z.coerce.number().min(0),
   notes: z.string().optional(),
 });
 type CollectForm = z.infer<typeof collectSchema>;
 
 interface PaymentSummary { cash: number; card: number; credit: number; cashLiters: number; cardLiters: number; creditLiters: number; cashCount: number; cardCount: number; creditCount: number; }
+interface CreditSummary { totalCharged: number; totalCollected: number; outstanding: number; }
 
 function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () => void }) {
   const qc = useQueryClient();
@@ -234,7 +234,6 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
 
   const safeAccounts = accounts.filter(a => a.type === 'safe');
   const bankAccounts = accounts.filter(a => a.type === 'bank');
-  const creditAccounts = accounts.filter(a => a.type === 'credit');
 
   const { register, handleSubmit, watch, setValue, setError, formState: { errors } } = useForm<CollectForm>({ resolver: zodResolver(collectSchema) });
   const selectedShiftId = watch('shiftId');
@@ -254,9 +253,8 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
   useEffect(() => {
     if (safeAccounts.length === 1) setValue('cashAccountId', safeAccounts[0].id);
     if (bankAccounts.length === 1) setValue('bankAccountId', bankAccounts[0].id);
-    if (creditAccounts.length === 1) setValue('creditAccountId', creditAccounts[0].id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [safeAccounts.length, bankAccounts.length, creditAccounts.length]);
+  }, [safeAccounts.length, bankAccounts.length]);
 
   const cashDiscrepancy = summary ? received - Number(summary.cash) : 0;
 
@@ -264,10 +262,6 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
     if (summary) {
       if (Number(summary.card) > 0 && !d.bankAccountId) {
         setError('bankAccountId', { message: 'Required: card sales exist for this shift' });
-        return;
-      }
-      if (Number(summary.credit) > 0 && !d.creditAccountId) {
-        setError('creditAccountId', { message: 'Required: credit sales exist for this shift' });
         return;
       }
     }
@@ -279,7 +273,6 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
       shiftId: d.shiftId,
       cashAccountId: d.cashAccountId,
       bankAccountId: d.bankAccountId || undefined,
-      creditAccountId: d.creditAccountId || undefined,
       amountReceived: d.amountReceived,
       notes: d.notes,
     }),
@@ -363,21 +356,21 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg bg-warning/10 flex items-center justify-center"><Receipt size={14} className="text-warning" /></div>
                     <div>
-                      <p className="text-sm font-medium text-white">{t('accounts.creditToCredit')}</p>
+                      <p className="text-sm font-medium text-white">{t('accounts.creditReceivableLabel', { defaultValue: 'Credit (Receivable)' })}</p>
                       <p className="text-xs text-text-muted">{summary.creditCount} {t('accounts.salesCount')} · {Number(summary.creditLiters).toFixed(0)} L</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <span className="text-warning font-bold text-sm block">SAR {Number(summary.credit).toFixed(2)}</span>
-                      {summary.creditCount > 0 && <span className="text-xs text-text-muted">{t('accounts.pendingApproval')}</span>}
+                      {summary.creditCount > 0 && <span className="text-xs text-text-muted">{t('accounts.pendingCollection', { defaultValue: 'pending collection' })}</span>}
                   </div>
                 </div>
                 <div className="px-3 pb-2.5">
-                  <select {...register('creditAccountId')} className="w-full bg-bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-warning">
-                    <option value="">{Number(summary.credit) === 0 ? t('accounts.noCreditSales') : t('accounts.selectCredit')}</option>
-                    {creditAccounts.map(a => <option key={a.id} value={a.id}>{a.name} (SAR {Number(a.balance).toFixed(0)})</option>)}
-                  </select>
-                  {errors.creditAccountId && <p className="text-danger text-xs mt-1">{errors.creditAccountId.message}</p>}
+                  <p className="text-xs text-text-muted">
+                    {Number(summary.credit) === 0
+                      ? t('accounts.noCreditSales')
+                      : t('accounts.creditWillBeCollectedLater', { defaultValue: 'This stays as receivable and is collected later from Accounts.' })}
+                  </p>
                 </div>
               </div>
             </div>
@@ -420,12 +413,125 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
   );
 }
 
+const creditCollectSchema = z.object({
+  paymentMethod: z.enum(['cash', 'card']),
+  toAccountId: z.string().min(1, 'Select destination account'),
+  amount: z.coerce.number().positive('Amount must be > 0'),
+  notes: z.string().optional(),
+});
+type CreditCollectForm = z.infer<typeof creditCollectSchema>;
+
+function CollectCreditModal({ accounts, onClose }: { accounts: Account[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { t } = useTranslation();
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { errors },
+  } = useForm<CreditCollectForm>({
+    resolver: zodResolver(creditCollectSchema),
+    defaultValues: { paymentMethod: 'cash' },
+  });
+
+  const { data: creditSummary } = useQuery<CreditSummary>({
+    queryKey: ['credit-summary'],
+    queryFn: () => api.get('/accounts/credit-summary').then((r) => r.data),
+  });
+
+  const paymentMethod = watch('paymentMethod');
+  const targetAccounts = accounts.filter((a) => (paymentMethod === 'cash' ? a.type === 'safe' : a.type === 'bank'));
+
+  useEffect(() => {
+    if (targetAccounts.length === 1) setValue('toAccountId', targetAccounts[0].id);
+  }, [targetAccounts, setValue]);
+
+  const mutation = useMutation({
+    mutationFn: (d: CreditCollectForm) => api.post('/accounts/collect-credit', d),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['credit-summary'] });
+      onClose();
+    },
+  });
+
+  const onSubmit = (d: CreditCollectForm) => {
+    const outstanding = Number(creditSummary?.outstanding ?? 0);
+    if (d.amount > outstanding) return;
+    mutation.mutate(d);
+  };
+
+  const outstanding = Number(creditSummary?.outstanding ?? 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2"><Receipt size={18} className="text-warning" /> {t('accounts.collectCreditTitle', { defaultValue: 'Collect Credit' })}</h2>
+          <button onClick={onClose}><X size={20} className="text-text-muted hover:text-white" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
+          <div className="bg-bg-primary border border-border rounded-lg px-3 py-2.5">
+            <p className="text-xs text-text-secondary uppercase tracking-wide">{t('accounts.outstandingCredit', { defaultValue: 'Outstanding Credit' })}</p>
+            <p className="text-xl font-bold text-warning mt-0.5">SAR {outstanding.toFixed(2)}</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">{t('accounts.collectionMethod', { defaultValue: 'Collection Method' })}</label>
+            <select {...register('paymentMethod')} className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary">
+              <option value="cash">{t('common.cash')}</option>
+              <option value="card">{t('common.card')}</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">
+              {paymentMethod === 'cash'
+                ? t('accounts.cashToSafe')
+                : t('accounts.cardToBank')}
+            </label>
+            <select {...register('toAccountId')} className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary">
+              <option value="">{paymentMethod === 'cash' ? t('accounts.selectSafe') : t('accounts.selectBank')}</option>
+              {targetAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} (SAR {Number(a.balance).toFixed(0)})</option>)}
+            </select>
+            {errors.toAccountId && <p className="text-danger text-xs mt-1">{errors.toAccountId.message}</p>}
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">{t('common.amount')}</label>
+            <input type="number" step="0.01" max={outstanding} {...register('amount')} className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary" placeholder="0.00" />
+            {errors.amount && <p className="text-danger text-xs mt-1">{errors.amount.message}</p>}
+            {!errors.amount && <p className="text-xs text-text-muted mt-1">{t('accounts.maxAllowed', { defaultValue: 'Max allowed' })}: SAR {outstanding.toFixed(2)}</p>}
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">{t('accounts.notes')} ({t('common.optional')})</label>
+            <input {...register('notes')} className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary" placeholder={t('accounts.form.reasonPlaceholder')} />
+          </div>
+
+          {mutation.isError && <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{(mutation.error as any)?.response?.data?.message || 'Error'}</p>}
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:text-white transition-all">{t('common.close')}</button>
+            <button type="submit" disabled={mutation.isPending || outstanding <= 0} className="flex-1 py-2.5 bg-warning text-bg-primary font-semibold rounded-lg text-sm hover:bg-warning/90 disabled:opacity-60">
+              {mutation.isPending ? t('common.saving') : t('accounts.collectCreditTitle', { defaultValue: 'Collect Credit' })}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export function AccountsPage() {
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === 'rtl';
   const [transferModal, setTransferModal] = useState(false);
   const [collectModal, setCollectModal] = useState(false);
+  const [collectCreditModal, setCollectCreditModal] = useState(false);
   const [statementAccount, setStatementAccount] = useState<Account | null>(null);
 
   const { data: accounts = [], isLoading } = useQuery<Account[]>({
@@ -454,6 +560,9 @@ export function AccountsPage() {
         <div className="flex gap-2">
           <button onClick={() => setCollectModal(true)} className="flex items-center gap-2 bg-teal text-white font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-teal/90 transition-all">
             <HandCoins size={16} /> {t('accounts.collectTitle')}
+          </button>
+          <button onClick={() => setCollectCreditModal(true)} className="flex items-center gap-2 bg-warning text-bg-primary font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-warning/90 transition-all">
+            <Receipt size={16} /> {t('accounts.collectCreditTitle', { defaultValue: 'Collect Credit' })}
           </button>
           <button onClick={() => setTransferModal(true)} className="flex items-center gap-2 bg-bg-card border border-border text-text-secondary hover:text-white hover:border-border-light font-semibold px-4 py-2.5 rounded-xl text-sm transition-all">
             <ArrowLeftRight size={16} /> {t('accounts.transferFunds')}
@@ -505,7 +614,7 @@ export function AccountsPage() {
                 {pagedTx.map(tx => (
                   <tr key={tx.id} className="hover:bg-bg-secondary/50 transition-colors">
                     <td className="px-5 py-3 text-text-secondary">{new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(tx.createdAt))}</td>
-                    <td className="px-5 py-3 capitalize text-white">{t(`accounts.categories.${tx.category}`) || tx.category}</td>
+                    <td className="px-5 py-3 capitalize text-white">{t(`accounts.categories.${tx.category}`, { defaultValue: tx.category.replace('_', ' ') })}</td>
                     <td className="px-5 py-3">
                       <span className={clsx('font-bold flex items-center gap-1', tx.type === 'credit' ? 'text-success' : 'text-danger')}>
                         {tx.type === 'credit' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
@@ -524,6 +633,7 @@ export function AccountsPage() {
 
       {transferModal && <TransferModal accounts={accounts} onClose={() => setTransferModal(false)} />}
       {collectModal && <CollectModal accounts={accounts} onClose={() => setCollectModal(false)} />}
+      {collectCreditModal && <CollectCreditModal accounts={accounts} onClose={() => setCollectCreditModal(false)} />}
       {statementAccount && <StatementDrawer account={statementAccount} onClose={() => setStatementAccount(null)} />}
     </div>
   );

@@ -1,10 +1,21 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Account, AccountTransaction, Transfer, CashCollection, AccountType, TransactionType, TransactionCategory } from './account.entity';
+import {
+  Account,
+  AccountTransaction,
+  Transfer,
+  CashCollection,
+  AccountType,
+  TransactionType,
+  TransactionCategory,
+  CreditLedgerEntry,
+  CreditLedgerType,
+} from './account.entity';
 import { ShiftsService } from '../shifts/shifts.service';
 import { SalesService } from '../sales/sales.service';
 import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { PaymentMethod } from '../sales/sale.entity';
 
 export class CreateAccountDto {
   @IsNotEmpty() @IsString() name: string;
@@ -23,8 +34,14 @@ export class CollectCashDto {
   @IsNotEmpty() @IsString() shiftId: string;
   @IsNotEmpty() @IsString() cashAccountId: string;
   @IsOptional() @IsString() bankAccountId?: string;
-  @IsOptional() @IsString() creditAccountId?: string;
   @IsNumber() @Min(0) amountReceived: number;
+  @IsOptional() @IsString() notes?: string;
+}
+
+export class CollectCreditDto {
+  @IsNotEmpty() @IsString() toAccountId: string;
+  @IsEnum(PaymentMethod) paymentMethod: PaymentMethod;
+  @IsNumber() @Min(0.01) amount: number;
   @IsOptional() @IsString() notes?: string;
 }
 
@@ -35,6 +52,7 @@ export class AccountsService {
     @InjectRepository(AccountTransaction) private txRepo: Repository<AccountTransaction>,
     @InjectRepository(Transfer) private transferRepo: Repository<Transfer>,
     @InjectRepository(CashCollection) private collectionRepo: Repository<CashCollection>,
+    @InjectRepository(CreditLedgerEntry) private creditLedgerRepo: Repository<CreditLedgerEntry>,
     private shiftsService: ShiftsService,
     private salesService: SalesService,
   ) {}
@@ -94,14 +112,7 @@ export class AccountsService {
       bankAccount.balance = Number(bankAccount.balance) + cardAmount;
     }
 
-    // Deposit credit → credit account (if any credit sales)
-    let creditAccount: Account | null = null;
-    if (creditAmount > 0 && dto.creditAccountId) {
-      creditAccount = await this.findById(dto.creditAccountId);
-      creditAccount.balance = Number(creditAccount.balance) + creditAmount;
-    }
-
-    await this.accountRepo.save([cashAccount, bankAccount, creditAccount].filter(Boolean) as Account[]);
+    await this.accountRepo.save([cashAccount, bankAccount].filter(Boolean) as Account[]);
 
     const collection = await this.collectionRepo.save(
       this.collectionRepo.create({
@@ -110,7 +121,7 @@ export class AccountsService {
         accountantId,
         toAccountId: dto.cashAccountId,
         bankAccountId: dto.bankAccountId || null,
-        creditAccountId: dto.creditAccountId || null,
+        creditAccountId: null,
         amountExpected: summary.cash,
         amountReceived: cashAmount,
         cardAmount,
@@ -128,9 +139,6 @@ export class AccountsService {
     ];
     if (cardAmount > 0 && dto.bankAccountId) {
       txs.push(this.txRepo.create({ accountId: dto.bankAccountId, type: TransactionType.CREDIT, category: TransactionCategory.COLLECTION, amount: cardAmount, referenceId: collection.id, notes: `Card - ${dto.notes || 'Shift collection'}`, createdBy: accountantId }));
-    }
-    if (creditAmount > 0 && dto.creditAccountId) {
-      txs.push(this.txRepo.create({ accountId: dto.creditAccountId, type: TransactionType.CREDIT, category: TransactionCategory.COLLECTION, amount: creditAmount, referenceId: collection.id, notes: `Credit - ${dto.notes || 'Shift collection'}`, createdBy: accountantId }));
     }
     await this.txRepo.save(txs);
 
@@ -177,5 +185,76 @@ export class AccountsService {
 
   getCollections(stationId: string): Promise<CashCollection[]> {
     return this.collectionRepo.find({ where: { stationId }, order: { collectedAt: 'DESC' } });
+  }
+
+  async getCreditSummary(stationId: string) {
+    const entries = await this.creditLedgerRepo.find({ where: { stationId } });
+    const totalCharged = entries
+      .filter((e) => e.type === CreditLedgerType.CHARGE)
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+    const totalCollected = entries
+      .filter((e) => e.type === CreditLedgerType.COLLECTION)
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+    return {
+      totalCharged,
+      totalCollected,
+      outstanding: Math.max(0, totalCharged - totalCollected),
+    };
+  }
+
+  async collectCredit(stationId: string, createdBy: string, dto: CollectCreditDto) {
+    if (dto.paymentMethod !== PaymentMethod.CASH && dto.paymentMethod !== PaymentMethod.CARD) {
+      throw new BadRequestException('Credit can be collected only as cash or card');
+    }
+
+    const summary = await this.getCreditSummary(stationId);
+    if (dto.amount > summary.outstanding) {
+      throw new BadRequestException(`Amount exceeds outstanding credit (${summary.outstanding.toFixed(2)})`);
+    }
+
+    const toAccount = await this.findById(dto.toAccountId);
+    if (toAccount.stationId !== stationId) {
+      throw new BadRequestException('Invalid account for this station');
+    }
+
+    if (dto.paymentMethod === PaymentMethod.CASH && toAccount.type !== AccountType.SAFE) {
+      throw new BadRequestException('Cash collection must go to a safe account');
+    }
+    if (dto.paymentMethod === PaymentMethod.CARD && toAccount.type !== AccountType.BANK) {
+      throw new BadRequestException('Card collection must go to a bank account');
+    }
+
+    toAccount.balance = Number(toAccount.balance) + Number(dto.amount);
+    await this.accountRepo.save(toAccount);
+
+    const ledger = await this.creditLedgerRepo.save(
+      this.creditLedgerRepo.create({
+        stationId,
+        type: CreditLedgerType.COLLECTION,
+        amount: dto.amount,
+        toAccountId: dto.toAccountId,
+        notes: dto.notes || `Credit collection via ${dto.paymentMethod}`,
+        createdBy,
+      }),
+    );
+
+    await this.txRepo.save(
+      this.txRepo.create({
+        accountId: dto.toAccountId,
+        type: TransactionType.CREDIT,
+        category: TransactionCategory.CREDIT_COLLECTION,
+        amount: dto.amount,
+        referenceId: ledger.id,
+        notes: dto.notes || `Credit collection via ${dto.paymentMethod}`,
+        createdBy,
+      }),
+    );
+
+    return {
+      message: 'Credit collected successfully',
+      ledgerId: ledger.id,
+      amount: Number(dto.amount),
+      paymentMethod: dto.paymentMethod,
+    };
   }
 }

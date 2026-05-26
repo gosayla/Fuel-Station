@@ -1,8 +1,16 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
 export enum AccountType { SAFE = 'safe', BANK = 'bank', CREDIT = 'credit' }
-export enum TransactionCategory { COLLECTION = 'collection', TRANSFER = 'transfer', EXPENSE = 'expense', PURCHASE = 'purchase' }
+export enum TransactionCategory {
+  COLLECTION = 'collection',
+  TRANSFER = 'transfer',
+  EXPENSE = 'expense',
+  PURCHASE = 'purchase',
+  CREDIT_SALE = 'credit_sale',
+  CREDIT_COLLECTION = 'credit_collection',
+}
 export enum TransactionType { CREDIT = 'credit', DEBIT = 'debit' }
+export enum CreditLedgerType { CHARGE = 'charge', COLLECTION = 'collection' }
 
 @Entity('accounts')
 export class Account {
@@ -57,4 +65,17 @@ export class CashCollection {
   @Column({ type: 'decimal', precision: 10, scale: 2 }) discrepancy: number;
   @Column({ nullable: true }) notes: string;
   @CreateDateColumn() collectedAt: Date;
+}
+
+@Entity('credit_ledger_entries')
+export class CreditLedgerEntry {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column() stationId: string;
+  @Column({ type: 'enum', enum: CreditLedgerType }) type: CreditLedgerType;
+  @Column({ type: 'decimal', precision: 12, scale: 2 }) amount: number;
+  @Column({ nullable: true }) saleId: string;
+  @Column({ nullable: true }) toAccountId: string;
+  @Column({ nullable: true }) notes: string;
+  @Column() createdBy: string;
+  @CreateDateColumn() createdAt: Date;
 }
