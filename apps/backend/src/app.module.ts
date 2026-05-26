@@ -28,7 +28,7 @@ import { ReportsModule } from './reports/reports.module';
         password: config.get('DB_PASSWORD', 'postgres'),
         database: config.get('DB_NAME', 'fuel_station'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: config.get('NODE_ENV') !== 'production',
+        synchronize: config.get('NODE_ENV') !== 'production' || config.get('DB_SYNCHRONIZE') === 'true',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
