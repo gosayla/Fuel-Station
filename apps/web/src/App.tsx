@@ -12,6 +12,11 @@ import { AccountsPage } from './pages/accounts/AccountsPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
 import { UsersPage } from './pages/users/UsersPage';
 import { ProfilePage } from './pages/profile/ProfilePage';
+import { ExpensesPage } from './pages/expenses/ExpensesPage';
+import { PosPage } from './pages/pos/PosPage';
+import { PosItemForm } from './pages/pos/PosItemForm';
+import { PosSaleForm } from './pages/pos/PosSaleForm';
+import { PosRestockForm } from './pages/pos/PosRestockForm';
 import { PinLoginPage } from './pages/auth/PinLoginPage';
 import { LanguageWrapper } from './components/LanguageWrapper';
 
@@ -39,9 +44,15 @@ export default function App() {
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="tanks" element={<TanksPage />} />
             <Route path="sales" element={<SalesPage />} />
+            <Route path="pos" element={<PosPage />} />
+            <Route path="pos/items/new" element={<PosItemForm />} />
+            <Route path="pos/items/:id" element={<PosItemForm />} />
+            <Route path="pos/sales/new" element={<PosSaleForm />} />
+            <Route path="pos/restocks/new" element={<PosRestockForm />} />
             <Route path="shifts" element={<ShiftsPage />} />
             <Route path="shifts/:id" element={<ShiftDetailPage />} />
             <Route path="purchases" element={<PurchasesPage />} />
+            <Route path="expenses" element={<ExpensesPage />} />
             <Route path="accounts" element={<AccountsPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="users" element={<UsersPage />} />

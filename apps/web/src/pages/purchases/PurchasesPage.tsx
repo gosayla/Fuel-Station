@@ -117,6 +117,12 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ['accounts'] });
       onClose();
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
   });
 
   return (

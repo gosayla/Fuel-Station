@@ -43,6 +43,35 @@ interface Sale {
   createdAt: string;
 }
 
+interface PosSale {
+  id: string;
+  totalItems: number;
+  totalAmount: number;
+  paymentMethod: 'cash' | 'card' | 'credit';
+  createdAt: string;
+}
+
+interface PosSummary {
+  cash: number;
+  card: number;
+  credit: number;
+  cashCount: number;
+  cardCount: number;
+  creditCount: number;
+  totalItems: number;
+}
+
+interface CombinedSale {
+  id: string;
+  source: 'fuel' | 'pos';
+  createdAt: string;
+  paymentMethod: 'cash' | 'card' | 'credit';
+  amount: number;
+  liters?: number;
+  totalItems?: number;
+  tankLabel?: string;
+}
+
 interface Tank {
   id: string;
   name: string;
@@ -102,12 +131,39 @@ export function ShiftDetailPage() {
     queryKey: ['shift', id],
     queryFn: () => api.get(`/shifts/${id}`).then((r) => r.data),
     enabled: !!id,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const { data: sales = [], isLoading: salesLoading } = useQuery<Sale[]>({
     queryKey: ['shift-sales', id],
     queryFn: () => api.get(`/sales/shift/${id}`).then((r) => r.data),
     enabled: !!id,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  const {
+    data: posSales = [],
+    isLoading: posSalesLoading,
+    isError: posSalesError,
+  } = useQuery<PosSale[]>({
+    queryKey: ['shift-pos-sales', id],
+    queryFn: () => api.get(`/pos/sales/shift/${id}`).then((r) => r.data),
+    enabled: !!id,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  const {
+    data: posSummary,
+    isError: posSummaryError,
+  } = useQuery<PosSummary>({
+    queryKey: ['shift-pos-summary', id],
+    queryFn: () => api.get(`/pos/sales/shift/${id}/summary`).then((r) => r.data),
+    enabled: !!id,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const { data: tanks = [] } = useQuery<Tank[]>({
@@ -117,7 +173,41 @@ export function ShiftDetailPage() {
 
   const tankMap = Object.fromEntries(tanks.map((t) => [t.id, t]));
 
-  const { page, setPage, totalPages, paged: pagedSales, start, end } = usePagination(sales, 15);
+  const fuelSummary = sales.reduce(
+    (acc, sale) => {
+      acc[sale.paymentMethod] += Number(sale.totalAmount);
+      return acc;
+    },
+    { cash: 0, card: 0, credit: 0 },
+  );
+
+  const combinedPaymentSummary = {
+    cash: fuelSummary.cash + Number(posSummary?.cash ?? 0),
+    card: fuelSummary.card + Number(posSummary?.card ?? 0),
+    credit: fuelSummary.credit + Number(posSummary?.credit ?? 0),
+  };
+
+  const combinedSales: CombinedSale[] = [
+    ...sales.map((sale) => ({
+      id: sale.id,
+      source: 'fuel' as const,
+      createdAt: sale.createdAt,
+      paymentMethod: sale.paymentMethod,
+      amount: Number(sale.totalAmount),
+      liters: Number(sale.liters),
+      tankLabel: tankMap[sale.tankId]?.name ?? sale.tankId.slice(0, 8),
+    })),
+    ...posSales.map((sale) => ({
+      id: sale.id,
+      source: 'pos' as const,
+      createdAt: sale.createdAt,
+      paymentMethod: sale.paymentMethod,
+      amount: Number(sale.totalAmount),
+      totalItems: Number(sale.totalItems),
+    })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const { page, setPage, totalPages, paged: pagedSales, start, end } = usePagination(combinedSales, 15);
 
   if (shiftLoading) {
     return (
@@ -160,8 +250,10 @@ export function ShiftDetailPage() {
       ? Number(shift.discrepancy)
       : null;
 
-  const totalSalesAmount = sales.reduce((s, x) => s + Number(x.totalAmount), 0);
+  const totalSalesAmount = combinedSales.reduce((s, x) => s + Number(x.amount), 0);
   const totalSalesLiters = sales.reduce((s, x) => s + Number(x.liters), 0);
+  const totalPosItems = posSales.reduce((s, x) => s + Number(x.totalItems), 0);
+  const isAnySalesLoading = salesLoading || posSalesLoading;
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
@@ -224,6 +316,27 @@ export function ShiftDetailPage() {
         />
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard
+          label={t('common.cash')}
+          value={`SAR ${combinedPaymentSummary.cash.toFixed(2)}`}
+          color="text-success"
+          sub={t('shifts.salesBreakdown')}
+        />
+        <StatCard
+          label={t('common.card')}
+          value={`SAR ${combinedPaymentSummary.card.toFixed(2)}`}
+          color="text-primary"
+          sub={t('shifts.salesBreakdown')}
+        />
+        <StatCard
+          label={t('common.credit')}
+          value={`SAR ${combinedPaymentSummary.credit.toFixed(2)}`}
+          color="text-warning"
+          sub={t('shifts.salesBreakdown')}
+        />
+      </div>
+
       {/* Cash reconciliation row (closed / reconciled shifts) */}
       {shift.status !== 'open' && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -263,16 +376,24 @@ export function ShiftDetailPage() {
             <Droplets size={16} className="text-primary" />
             {t('shifts.salesRecords')}
           </h2>
-          <span className="text-xs text-text-muted">{!rtl ? sales.length : ''} {t('shifts.litersSold').toLowerCase()} {rtl ? sales.length : ''}</span>
+          <span className="text-xs text-text-muted">
+            {!rtl ? combinedSales.length : ''} {t('common.total').toLowerCase()} {rtl ? combinedSales.length : ''}
+          </span>
         </div>
 
-        {salesLoading ? (
+        {(posSalesError || posSummaryError) && (
+          <div className="px-5 py-3 border-b border-border text-xs text-warning bg-warning/5">
+            {t('common.warning', { defaultValue: 'Warning' })}: {t('reports.partialDataHint', { defaultValue: 'POS data is temporarily unavailable. Showing available shift data.' })}
+          </div>
+        )}
+
+        {isAnySalesLoading ? (
           <div className="p-5 space-y-3">
             {[1, 2, 3].map((i) => (
               <div key={i} className="h-11 bg-bg-secondary rounded-xl animate-pulse" />
             ))}
           </div>
-        ) : sales.length === 0 ? (
+        ) : combinedSales.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-text-muted">
             <Droplets size={36} className="mb-2 opacity-30" />
             <p className="text-sm">{t('shifts.noSales')}</p>
@@ -286,13 +407,10 @@ export function ShiftDetailPage() {
                     {t('common.time')}
                   </th>
                   <th className={`${rtl ? 'text-right' : 'text-left'} px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide`}>
-                    {t('common.tank')}
+                    {t('common.type', { defaultValue: 'Type' })}
                   </th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">
-                    {t('sales.liters')}
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">
-                    {t('common.pricePerLiter')}
+                  <th className={`${rtl ? 'text-right' : 'text-left'} px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide`}>
+                    {t('common.details', { defaultValue: 'Details' })}
                   </th>
                   <th className="text-right px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">
                     {t('common.amount')}
@@ -304,7 +422,7 @@ export function ShiftDetailPage() {
               </thead>
               <tbody>
                 {pagedSales.map((sale, idx) => {
-                  const tank = tankMap[sale.tankId];
+                  const isFuel = sale.source === 'fuel';
                   return (
                     <tr
                       key={sale.id}
@@ -317,16 +435,20 @@ export function ShiftDetailPage() {
                         {format(new Date(sale.createdAt), 'HH:mm:ss')}
                       </td>
                       <td className="px-5 py-3 text-white">
-                        {tank ? tank.name : sale.tankId.slice(0, 8)}
+                        <span className={clsx(
+                          'inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full capitalize',
+                          isFuel ? 'bg-primary/10 text-primary' : 'bg-teal/10 text-teal',
+                        )}>
+                          {isFuel ? t('nav.sales', { defaultValue: 'Fuel' }) : t('nav.pos', { defaultValue: 'POS' })}
+                        </span>
                       </td>
-                      <td className="px-5 py-3 text-right text-white tabular-nums">
-                        {Number(sale.liters).toFixed(2)} L
-                      </td>
-                      <td className="px-5 py-3 text-right text-text-secondary tabular-nums">
-                        {Number(sale.pricePerLiter).toFixed(2)}
+                      <td className="px-5 py-3 text-white">
+                        {isFuel
+                          ? `${sale.tankLabel} · ${Number(sale.liters ?? 0).toFixed(2)} L`
+                          : `${Number(sale.totalItems ?? 0).toFixed(2)} items`}
                       </td>
                       <td className="px-5 py-3 text-right font-semibold text-white tabular-nums">
-                        SAR {Number(sale.totalAmount).toFixed(2)}
+                        SAR {Number(sale.amount).toFixed(2)}
                       </td>
                       <td className="px-5 py-3 text-right">
                         <span
@@ -351,10 +473,9 @@ export function ShiftDetailPage() {
                   >
                     {t('common.total')}
                   </td>
-                  <td className="px-5 py-3 text-right font-bold text-white tabular-nums">
-                    {totalSalesLiters.toFixed(2)} L
+                  <td className="px-5 py-3 text-white text-xs">
+                    {t('common.litersSold')}: {totalSalesLiters.toFixed(2)} L · {totalPosItems.toFixed(2)} items
                   </td>
-                  <td />
                   <td className="px-5 py-3 text-right font-bold text-white tabular-nums">
                     SAR {totalSalesAmount.toFixed(2)}
                   </td>
@@ -362,7 +483,7 @@ export function ShiftDetailPage() {
                 </tr>
               </tfoot>
             </table>
-            <Pagination page={page} totalPages={totalPages} start={start} end={end} total={sales.length} onPageChange={setPage} />
+            <Pagination page={page} totalPages={totalPages} start={start} end={end} total={combinedSales.length} onPageChange={setPage} />
           </div>
         )}
       </div>

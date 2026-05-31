@@ -101,6 +101,11 @@ export function SaleFormScreen() {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
       navigation.goBack();
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({ queryKey: ['shifts'] });
+      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+    },
     onError: (err: any) => {
       const msg = err.response?.data?.message ?? t('common.error');
       showAlert({ title: t('common.error'), message: Array.isArray(msg) ? msg.join('\n') : msg, variant: 'error' });

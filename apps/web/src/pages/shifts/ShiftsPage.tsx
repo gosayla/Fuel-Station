@@ -57,6 +57,11 @@ function OpenShiftModal({ onClose }: { onClose: () => void }) {
   const mutation = useMutation({
     mutationFn: (d: OpenForm) => api.post('/shifts', { employeeId: d.employeeId, openingCash: d.openingCash }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); onClose(); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
   });
 
   return (
@@ -115,6 +120,16 @@ function CloseShiftModal({ shift, onClose }: { shift: Shift; onClose: () => void
   const mutation = useMutation({
     mutationFn: (d: CloseForm) => api.patch(`/shifts/${shift.id}/close`, { actualCash: d.actualCash }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); onClose(); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['shift', shift.id] });
+      qc.invalidateQueries({ queryKey: ['shift-sales', shift.id] });
+      qc.invalidateQueries({ queryKey: ['shift-summary', shift.id] });
+      qc.invalidateQueries({ queryKey: ['shift-pos-sales', shift.id] });
+      qc.invalidateQueries({ queryKey: ['shift-pos-summary', shift.id] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
   });
 
   return (

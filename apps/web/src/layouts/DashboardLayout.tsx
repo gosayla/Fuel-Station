@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/auth.store';
 import { api } from '../lib/api';
 import {
   LayoutDashboard, Fuel, ShoppingCart, Users, Wallet,
-  BarChart3, LogOut, Fuel as FuelIcon, Truck, Menu, X, UserCog,
+  BarChart3, LogOut, Fuel as FuelIcon, Truck, Menu, X, UserCog, Package, ReceiptText,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -13,7 +13,9 @@ const NAV_ITEMS = [
   { key: 'dashboard', icon: LayoutDashboard, path: '/dashboard', roles: null },
   { key: 'tanks',     icon: Fuel,            path: '/tanks',     roles: null },
   { key: 'sales',     icon: ShoppingCart,    path: '/sales',     roles: null },
+  { key: 'pos',       icon: Package,         path: '/pos',       roles: null },
   { key: 'purchases', icon: Truck,           path: '/purchases', roles: null },
+  { key: 'expenses',  icon: ReceiptText,     path: '/expenses',  roles: ['owner', 'manager', 'accountant'] },
   { key: 'shifts',    icon: Users,           path: '/shifts',    roles: null },
   { key: 'accounts',  icon: Wallet,          path: '/accounts',  roles: null },
   { key: 'reports',   icon: BarChart3,       path: '/reports',   roles: null },

@@ -19,6 +19,8 @@ export class Shift {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true }) discrepancy: number;
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) totalLitersSold: number;
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) totalRevenue: number;
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) totalPosRevenue: number;
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) totalPosItemsSold: number;
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) cashRevenue: number;
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) cardRevenue: number;
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) creditRevenue: number;

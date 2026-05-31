@@ -60,6 +60,7 @@ export function EmployeesScreen() {
   const unlockMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/users/${id}/reset-pin`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['users'] }),
     onError: (e: any) =>
       showAlert({ title: t('common.error'), message: e.response?.data?.message ?? t('common.errorGeneric'), variant: 'error' }),
   });
@@ -67,6 +68,7 @@ export function EmployeesScreen() {
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/users/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['users'] }),
     onError: (e: any) =>
       showAlert({ title: t('common.error'), message: e.response?.data?.message ?? t('common.errorGeneric'), variant: 'error' }),
   });

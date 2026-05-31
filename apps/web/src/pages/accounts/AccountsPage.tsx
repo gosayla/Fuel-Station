@@ -10,7 +10,17 @@ import clsx from 'clsx';
 import { usePagination, Pagination } from '../../components/Pagination';
 
 interface Account { id: string; name: string; type: 'safe' | 'bank' | 'credit'; balance: number; currency: string; }
-interface Shift { id: string; employeeId: string; employeeName?: string; status: string; expectedCash: number; startedAt?: string; }
+interface Shift {
+  id: string;
+  employeeId: string;
+  employeeName?: string;
+  status: string;
+  expectedCash: number;
+  startedAt?: string;
+  cashRevenue?: number;
+  cardRevenue?: number;
+  creditRevenue?: number;
+}
 interface Tx { id: string; type: 'credit' | 'debit'; category: string; amount: number; notes?: string; createdAt: string; }
 interface StatementEntry extends Tx { runningBalance: number; }
 interface Statement { account: Account; openingBalance: number; totalCredits: number; totalDebits: number; transactions: StatementEntry[]; }
@@ -163,6 +173,11 @@ function TransferModal({ accounts, onClose }: { accounts: Account[]; onClose: ()
   const mutation = useMutation({
     mutationFn: (d: TransferForm) => api.post('/accounts/transfer', d),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); qc.invalidateQueries({ queryKey: ['transactions'] }); onClose(); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
   });
 
   return (
@@ -224,6 +239,7 @@ const collectSchema = z.object({
 type CollectForm = z.infer<typeof collectSchema>;
 
 interface PaymentSummary { cash: number; card: number; credit: number; cashLiters: number; cardLiters: number; creditLiters: number; cashCount: number; cardCount: number; creditCount: number; }
+interface PosPaymentSummary { cash: number; card: number; credit: number; cashCount: number; cardCount: number; creditCount: number; totalItems: number; }
 interface CreditSummary { totalCharged: number; totalCollected: number; outstanding: number; }
 
 function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () => void }) {
@@ -237,18 +253,37 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
 
   const { register, handleSubmit, watch, setValue, setError, formState: { errors } } = useForm<CollectForm>({ resolver: zodResolver(collectSchema) });
   const selectedShiftId = watch('shiftId');
+  const selectedShift = closedShifts.find((shift) => shift.id === selectedShiftId);
   const received = watch('amountReceived') || 0;
 
-  const { data: summary } = useQuery<PaymentSummary>({
+  const { data: fuelSummary } = useQuery<PaymentSummary>({
     queryKey: ['shift-summary', selectedShiftId],
     queryFn: () => api.get(`/sales/shift/${selectedShiftId}/summary`).then(r => r.data),
     enabled: !!selectedShiftId,
   });
 
+  const { data: posSummary } = useQuery<PosPaymentSummary>({
+    queryKey: ['shift-pos-summary', selectedShiftId],
+    queryFn: () => api.get(`/pos/sales/shift/${selectedShiftId}/summary`).then(r => r.data),
+    enabled: !!selectedShiftId,
+  });
+
+  const combinedSummary = {
+    cash: Number(fuelSummary?.cash ?? 0) + Number(posSummary?.cash ?? selectedShift?.cashRevenue ?? 0),
+    card: Number(fuelSummary?.card ?? 0) + Number(posSummary?.card ?? selectedShift?.cardRevenue ?? 0),
+    credit: Number(fuelSummary?.credit ?? 0) + Number(posSummary?.credit ?? selectedShift?.creditRevenue ?? 0),
+    cashCount: Number(fuelSummary?.cashCount ?? 0) + Number(posSummary?.cashCount ?? 0),
+    cardCount: Number(fuelSummary?.cardCount ?? 0) + Number(posSummary?.cardCount ?? 0),
+    creditCount: Number(fuelSummary?.creditCount ?? 0) + Number(posSummary?.creditCount ?? 0),
+    cashLiters: Number(fuelSummary?.cashLiters ?? 0),
+    cardLiters: Number(fuelSummary?.cardLiters ?? 0),
+    creditLiters: Number(fuelSummary?.creditLiters ?? 0),
+  };
+
   // Auto-fill cash amount and auto-select single accounts
   useEffect(() => {
-    if (summary) setValue('amountReceived', Number(summary.cash));
-  }, [summary, setValue]);
+    if (selectedShiftId) setValue('amountReceived', Number(combinedSummary.cash));
+  }, [selectedShiftId, combinedSummary.cash, setValue]);
 
   useEffect(() => {
     if (safeAccounts.length === 1) setValue('cashAccountId', safeAccounts[0].id);
@@ -256,11 +291,11 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeAccounts.length, bankAccounts.length]);
 
-  const cashDiscrepancy = summary ? received - Number(summary.cash) : 0;
+  const cashDiscrepancy = selectedShiftId ? received - Number(combinedSummary.cash) : 0;
 
   const onSubmit = (d: CollectForm) => {
-    if (summary) {
-      if (Number(summary.card) > 0 && !d.bankAccountId) {
+    if (selectedShiftId) {
+      if (Number(combinedSummary.card) > 0 && !d.bankAccountId) {
         setError('bankAccountId', { message: 'Required: card sales exist for this shift' });
         return;
       }
@@ -276,7 +311,24 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
       amountReceived: d.amountReceived,
       notes: d.notes,
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); qc.invalidateQueries({ queryKey: ['transactions'] }); qc.invalidateQueries({ queryKey: ['shifts'] }); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      onClose();
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      if (selectedShiftId) {
+        qc.invalidateQueries({ queryKey: ['shift', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-sales', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-summary', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-pos-sales', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-pos-summary', selectedShiftId] });
+      }
+    },
   });
 
   return (
@@ -299,7 +351,7 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
           </div>
 
           {/* Payment breakdown */}
-          {summary && (
+          {selectedShiftId && (
             <div className="bg-bg-primary rounded-xl overflow-hidden border border-border">
               <div className="px-3 py-2 border-b border-border">
                 <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">{t('shifts.salesBreakdown')}</p>
@@ -312,10 +364,10 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
                     <div className="w-7 h-7 rounded-lg bg-success/10 flex items-center justify-center"><Banknote size={14} className="text-success" /></div>
                     <div>
                       <p className="text-sm font-medium text-white">{t('accounts.cashToSafe')}</p>
-                      <p className="text-xs text-text-muted">{summary.cashCount} {t('accounts.salesCount')} · {Number(summary.cashLiters).toFixed(0)} L</p>
+                      <p className="text-xs text-text-muted">{combinedSummary.cashCount} {t('accounts.salesCount')} · {Number(combinedSummary.cashLiters).toFixed(0)} L</p>
                     </div>
                   </div>
-                  <span className="text-success font-bold text-sm">SAR {Number(summary.cash).toFixed(2)}</span>
+                  <span className="text-success font-bold text-sm">SAR {Number(combinedSummary.cash).toFixed(2)}</span>
                 </div>
                 <div className="px-3 pb-2.5">
                   <select {...register('cashAccountId')} className="w-full bg-bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-success">
@@ -333,17 +385,17 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
                     <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center"><CreditCard size={14} className="text-primary" /></div>
                     <div>
                       <p className="text-sm font-medium text-white">{t('accounts.cardToBank')}</p>
-                      <p className="text-xs text-text-muted">{summary.cardCount} {t('accounts.salesCount')} · {Number(summary.cardLiters).toFixed(0)} L</p>
+                      <p className="text-xs text-text-muted">{combinedSummary.cardCount} {t('accounts.salesCount')} · {Number(combinedSummary.cardLiters).toFixed(0)} L</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-primary font-bold text-sm block">SAR {Number(summary.card).toFixed(2)}</span>
-                      {summary.cardCount > 0 && <span className="text-xs text-text-muted">{t('accounts.verifyReceipts')}</span>}
+                    <span className="text-primary font-bold text-sm block">SAR {Number(combinedSummary.card).toFixed(2)}</span>
+                      {combinedSummary.cardCount > 0 && <span className="text-xs text-text-muted">{t('accounts.verifyReceipts')}</span>}
                   </div>
                 </div>
                 <div className="px-3 pb-2.5">
                   <select {...register('bankAccountId')} className="w-full bg-bg-secondary border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary">
-                    <option value="">{Number(summary.card) === 0 ? t('accounts.noCardSales') : t('accounts.selectBank')}</option>
+                    <option value="">{Number(combinedSummary.card) === 0 ? t('accounts.noCardSales') : t('accounts.selectBank')}</option>
                     {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name} (SAR {Number(a.balance).toFixed(0)})</option>)}
                   </select>
                   {errors.bankAccountId && <p className="text-danger text-xs mt-1">{errors.bankAccountId.message}</p>}
@@ -357,17 +409,17 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
                     <div className="w-7 h-7 rounded-lg bg-warning/10 flex items-center justify-center"><Receipt size={14} className="text-warning" /></div>
                     <div>
                       <p className="text-sm font-medium text-white">{t('accounts.creditReceivableLabel', { defaultValue: 'Credit (Receivable)' })}</p>
-                      <p className="text-xs text-text-muted">{summary.creditCount} {t('accounts.salesCount')} · {Number(summary.creditLiters).toFixed(0)} L</p>
+                      <p className="text-xs text-text-muted">{combinedSummary.creditCount} {t('accounts.salesCount')} · {Number(combinedSummary.creditLiters).toFixed(0)} L</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-warning font-bold text-sm block">SAR {Number(summary.credit).toFixed(2)}</span>
-                      {summary.creditCount > 0 && <span className="text-xs text-text-muted">{t('accounts.pendingCollection', { defaultValue: 'pending collection' })}</span>}
+                    <span className="text-warning font-bold text-sm block">SAR {Number(combinedSummary.credit).toFixed(2)}</span>
+                      {combinedSummary.creditCount > 0 && <span className="text-xs text-text-muted">{t('accounts.pendingCollection', { defaultValue: 'pending collection' })}</span>}
                   </div>
                 </div>
                 <div className="px-3 pb-2.5">
                   <p className="text-xs text-text-muted">
-                    {Number(summary.credit) === 0
+                    {Number(combinedSummary.credit) === 0
                       ? t('accounts.noCreditSales')
                       : t('accounts.creditWillBeCollectedLater', { defaultValue: 'This stays as receivable and is collected later from Accounts.' })}
                   </p>
@@ -380,11 +432,11 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
           <div>
             <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">{t('common.cash')} ({t('common.amount')})</label>
             <input type="number" step="0.01" {...register('amountReceived')} className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-primary" placeholder="0.00" />
-            {summary && <p className="text-xs text-text-muted mt-1">{t('accounts.expectedCash')}: SAR {Number(summary.cash).toFixed(2)}</p>}
+            {selectedShiftId && <p className="text-xs text-text-muted mt-1">{t('accounts.expectedCash')}: SAR {Number(combinedSummary.cash).toFixed(2)}</p>}
           </div>
 
           {/* Cash discrepancy */}
-          {summary && (
+          {selectedShiftId && (
             <div className={clsx('rounded-xl p-3 text-sm font-medium flex items-center justify-between', cashDiscrepancy === 0 ? 'bg-success/10 text-success' : cashDiscrepancy > 0 ? 'bg-primary/10 text-primary' : 'bg-danger/10 text-danger')}>
               <div className="flex items-center gap-2">
                 {cashDiscrepancy === 0 ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
@@ -454,6 +506,11 @@ function CollectCreditModal({ accounts, onClose }: { accounts: Account[]; onClos
       qc.invalidateQueries({ queryKey: ['transactions'] });
       qc.invalidateQueries({ queryKey: ['credit-summary'] });
       onClose();
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['credit-summary'] });
     },
   });
 

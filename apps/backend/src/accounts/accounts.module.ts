@@ -4,10 +4,9 @@ import { Account, AccountTransaction, Transfer, CashCollection, CreditLedgerEntr
 import { AccountsService } from './accounts.service';
 import { AccountsController } from './accounts.controller';
 import { ShiftsModule } from '../shifts/shifts.module';
-import { SalesModule } from '../sales/sales.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Account, AccountTransaction, Transfer, CashCollection, CreditLedgerEntry]), ShiftsModule, SalesModule],
+  imports: [TypeOrmModule.forFeature([Account, AccountTransaction, Transfer, CashCollection, CreditLedgerEntry]), ShiftsModule],
   providers: [AccountsService],
   controllers: [AccountsController],
   exports: [AccountsService],

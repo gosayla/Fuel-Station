@@ -88,6 +88,11 @@ export function AccountsScreen() {
       queryClient.invalidateQueries({ queryKey: ['account-tx'] });
       queryClient.invalidateQueries({ queryKey: ['credit-summary'] });
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['account-tx'] });
+      queryClient.invalidateQueries({ queryKey: ['credit-summary'] });
+    },
     onError: (err: any) => {
       showAlert({ title: t('common.error'), message: err?.response?.data?.message || t('common.error'), variant: 'error' });
     },

@@ -75,6 +75,10 @@ export function TankFormScreen() {
       if (isEdit) qc.invalidateQueries({ queryKey: ['tank', tankId] });
       navigation.goBack();
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      if (isEdit) qc.invalidateQueries({ queryKey: ['tank', tankId] });
+    },
     onError: (e: any) => {
       showAlert({ title: t('common.error'), message: e.response?.data?.message ?? t('common.errorGeneric'), variant: 'error' });
     },
@@ -85,6 +89,9 @@ export function TankFormScreen() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tanks'] });
       navigation.goBack();
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tanks'] });
     },
     onError: (e: any) => {
       showAlert({ title: t('common.error'), message: e.response?.data?.message ?? t('common.errorGeneric'), variant: 'error' });

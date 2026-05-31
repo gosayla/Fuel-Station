@@ -40,7 +40,7 @@ export function DashboardPage() {
   const { t, i18n } = useTranslation();
   const { data: kpis, isLoading } = useQuery({
     queryKey: ['dashboard-kpis'],
-    queryFn: () => api.get('/reports/dashboard').then(r => r.data),
+    queryFn: () => api.get('/reports/dashboard', { params: { version: 'v2' } }).then(r => r.data),
     refetchInterval: 30_000,
   });
 

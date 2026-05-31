@@ -85,6 +85,14 @@ function NewSaleModal({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ['shifts'] });
       onClose();
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['sales'] });
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['shift-sales'] });
+      qc.invalidateQueries({ queryKey: ['shift-summary'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
   });
 
   return (

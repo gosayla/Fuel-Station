@@ -1,12 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, DataSource } from 'typeorm';
 import { Expense, ExpenseCategory } from './expense.entity';
-import { AccountsService } from '../accounts/accounts.service';
-import { TransactionType, TransactionCategory } from '../accounts/account.entity';
+import { TransactionType, TransactionCategory, Account, AccountTransaction } from '../accounts/account.entity';
 import { IsDateString, IsEnum, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
-import { InjectRepository as IR } from '@nestjs/typeorm';
-import { AccountTransaction } from '../accounts/account.entity';
 
 export class CreateExpenseDto {
   @IsNotEmpty() @IsString() accountId: string;
@@ -20,17 +17,47 @@ export class CreateExpenseDto {
 export class ExpensesService {
   constructor(
     @InjectRepository(Expense) private repo: Repository<Expense>,
+    @InjectRepository(Account) private accountRepo: Repository<Account>,
     @InjectRepository(AccountTransaction) private txRepo: Repository<AccountTransaction>,
-    private accountsService: AccountsService,
+    private dataSource: DataSource,
   ) {}
 
   async create(stationId: string, createdBy: string, dto: CreateExpenseDto): Promise<Expense> {
-    const account = await this.accountsService.findById(dto.accountId);
-    if (Number(account.balance) < dto.amount) throw new Error('Insufficient account balance');
-    account.balance = Number(account.balance) - dto.amount;
-    const expense = await this.repo.save(this.repo.create({ ...dto, stationId, createdBy, paidAt: new Date(dto.paidAt) }));
-    await this.txRepo.save(this.txRepo.create({ accountId: dto.accountId, type: TransactionType.DEBIT, category: TransactionCategory.EXPENSE, amount: dto.amount, referenceId: expense.id, notes: dto.description, createdBy }));
-    return expense;
+    return this.dataSource.transaction(async (manager) => {
+      const account = await manager.findOne(Account, { where: { id: dto.accountId, stationId, isActive: true } });
+      if (!account) throw new NotFoundException('Account not found');
+
+      const amount = Number(dto.amount);
+      if (Number(account.balance) < amount) {
+        throw new BadRequestException('Insufficient account balance');
+      }
+
+      account.balance = Number(account.balance) - amount;
+      await manager.save(account);
+
+      const expense = await manager.save(
+        manager.create(Expense, {
+          ...dto,
+          stationId,
+          createdBy,
+          paidAt: new Date(dto.paidAt),
+        }),
+      );
+
+      await manager.save(
+        manager.create(AccountTransaction, {
+          accountId: dto.accountId,
+          type: TransactionType.DEBIT,
+          category: TransactionCategory.EXPENSE,
+          amount,
+          referenceId: expense.id,
+          notes: dto.description,
+          createdBy,
+        }),
+      );
+
+      return expense;
+    });
   }
 
   findAll(stationId: string, from?: Date, to?: Date): Promise<Expense[]> {

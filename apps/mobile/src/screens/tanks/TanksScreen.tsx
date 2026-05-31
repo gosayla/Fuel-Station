@@ -105,6 +105,10 @@ export function TanksScreen() {
       qc.invalidateQueries({ queryKey: ['tanks'] });
       qc.invalidateQueries({ queryKey: ['tanks-archived'] });
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      qc.invalidateQueries({ queryKey: ['tanks-archived'] });
+    },
   });
 
   const { data, isLoading, refetch, isFetching } = showArchived ? archivedQuery : activeQuery;

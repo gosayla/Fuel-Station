@@ -81,6 +81,9 @@ function UserDrawer({
       qc.invalidateQueries({ queryKey: ['users'] });
       onClose();
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   const title = editing ? t('users.editUser') : t('users.addUser');
@@ -245,11 +248,17 @@ export function UsersPage() {
       qc.invalidateQueries({ queryKey: ['users'] });
       setConfirmDelete(null);
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   const resetPinMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/users/${id}/reset-pin`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   return (

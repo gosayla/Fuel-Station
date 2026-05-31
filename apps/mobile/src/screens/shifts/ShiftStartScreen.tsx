@@ -36,6 +36,9 @@ export function ShiftStartScreen() {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
       navigation.goBack();
     },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['shifts'] });
+    },
     onError: (err: any) => {
       showAlert({
         title: t('common.error'),

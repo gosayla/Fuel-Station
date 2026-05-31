@@ -167,6 +167,8 @@ export interface DashboardKpis {
   totalLitersSoldToday: number;
   totalPurchasesToday: number;
   totalExpensesToday: number;
+  // v1: totalSalesToday - totalExpensesToday
+  // v2: totalSalesToday - totalExpensesToday - totalPurchasesToday
   netProfitToday: number;
   safeBalance: number;
   bankBalance: number;

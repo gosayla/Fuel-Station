@@ -13,7 +13,6 @@ import {
   CreditLedgerType,
 } from './account.entity';
 import { ShiftsService } from '../shifts/shifts.service';
-import { SalesService } from '../sales/sales.service';
 import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { PaymentMethod } from '../sales/sale.entity';
 
@@ -54,7 +53,6 @@ export class AccountsService {
     @InjectRepository(CashCollection) private collectionRepo: Repository<CashCollection>,
     @InjectRepository(CreditLedgerEntry) private creditLedgerRepo: Repository<CreditLedgerEntry>,
     private shiftsService: ShiftsService,
-    private salesService: SalesService,
   ) {}
 
   findAll(stationId: string): Promise<Account[]> {
@@ -94,12 +92,12 @@ export class AccountsService {
     const shift = await this.shiftsService.findPendingReconciliation(stationId).then(s => s.find(x => x.id === dto.shiftId));
     if (!shift) throw new NotFoundException('Shift not found or already reconciled');
 
-    // Get actual payment breakdown from sales records
-    const summary = await this.salesService.getShiftPaymentSummary(dto.shiftId);
-    const cardAmount = Number(summary.card);
-    const creditAmount = Number(summary.credit);
+    // Shift aggregate revenues include both fuel and POS sales.
+    const expectedCash = Number(shift.cashRevenue ?? 0);
+    const cardAmount = Number(shift.cardRevenue ?? 0);
+    const creditAmount = Number(shift.creditRevenue ?? 0);
     const cashAmount = dto.amountReceived;
-    const discrepancy = cashAmount - Number(summary.cash);
+    const discrepancy = cashAmount - expectedCash;
 
     // Deposit cash → safe account
     const cashAccount = await this.findById(dto.cashAccountId);
@@ -122,7 +120,7 @@ export class AccountsService {
         toAccountId: dto.cashAccountId,
         bankAccountId: dto.bankAccountId || null,
         creditAccountId: null,
-        amountExpected: summary.cash,
+        amountExpected: expectedCash,
         amountReceived: cashAmount,
         cardAmount,
         creditAmount,

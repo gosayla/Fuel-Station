@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -66,6 +66,7 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 export function ProfilePage() {
   const { t, i18n } = useTranslation();
   const { user, setAuth, accessToken, refreshToken } = useAuthStore();
+  const qc = useQueryClient();
 
   const [profileSaved,  setProfileSaved]  = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
@@ -96,6 +97,9 @@ export function ProfilePage() {
       }
       flash(setProfileSaved);
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   // ── Password form ───────────────────────────────────────────────────────────
@@ -107,6 +111,9 @@ export function ProfilePage() {
       passwordForm.reset();
       flash(setPasswordSaved);
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   // ── PIN form ────────────────────────────────────────────────────────────────
@@ -117,6 +124,9 @@ export function ProfilePage() {
     onSuccess: () => {
       pinForm.reset();
       flash(setPinSaved);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
     },
   });
 

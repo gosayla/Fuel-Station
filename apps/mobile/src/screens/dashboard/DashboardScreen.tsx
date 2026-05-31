@@ -174,7 +174,7 @@ function ManagementDashboard() {
 
   const { data: kpis, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['dashboard-kpis'],
-    queryFn: () => api.get('/reports/dashboard').then((r) => r.data),
+    queryFn: () => api.get('/reports/dashboard', { params: { version: 'v2' } }).then((r) => r.data),
     refetchInterval: 60_000,
   });
 
@@ -204,7 +204,7 @@ function ManagementDashboard() {
   const profMarginPct = rev > 0 ? Math.round((prof / rev) * 100) : 0;
   const totalBal = (kpis?.safeBalance ?? 0) + (kpis?.bankBalance ?? 0);
   const L = isLoading;
-  const marginColor = profMarginPct >= 20 ? Colors.primary : profMarginPct >= 10 ? Colors.warning : Colors.danger;
+  const marginColor = profMarginPct >= 5 ? Colors.primary : profMarginPct >= 0 ? Colors.warning : Colors.danger;
 
   return (
     <SafeAreaView style={sh.safe}>

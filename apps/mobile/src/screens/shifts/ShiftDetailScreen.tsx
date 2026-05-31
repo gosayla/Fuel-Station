@@ -9,9 +9,10 @@ import {
   ActivityIndicator,
   I18nManager,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { format, formatDuration, intervalToDuration } from 'date-fns';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { api } from '../../lib/api';
@@ -83,25 +84,61 @@ export function ShiftDetailScreen() {
   const rtl = i18n.dir() === 'rtl';
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const shift = route.params?.shift as any;
+  const shiftParam = route.params?.shift as any;
+  const shiftId = shiftParam?.id as string | undefined;
+
+  const {
+    data: shift,
+    isLoading: shiftLoading,
+    refetch: refetchShift,
+  } = useQuery({
+    queryKey: ['shift', shiftId],
+    queryFn: () => api.get(`/shifts/${shiftId}`).then((r) => r.data),
+    enabled: !!shiftId,
+    initialData: shiftParam,
+    retry: 1,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (shiftId) refetchShift();
+    }, [shiftId, refetchShift]),
+  );
+
   const userRole = useAuthStore(s => s.user?.role);
   const canReconcile = userRole === 'owner' || userRole === 'manager' || userRole === 'accountant';
 
   // reconcileMutation removed — now navigates to CollectShiftScreen which calls POST /accounts/collect
 
   const { data: sales, isLoading: salesLoading } = useQuery({
-    queryKey: ['shift-sales', shift?.id],
-    queryFn: () => api.get(`/sales/shift/${shift.id}`).then((r) => r.data),
-    enabled: !!shift?.id,
+    queryKey: ['shift-sales', shiftId],
+    queryFn: () => api.get(`/sales/shift/${shiftId}`).then((r) => r.data),
+    enabled: !!shiftId,
+    retry: 1,
   });
 
-  const { data: ps } = useQuery({
-    queryKey: ['shift-payment-summary', shift?.id],
-    queryFn: () => api.get(`/sales/shift/${shift.id}/summary`).then((r) => r.data),
-    enabled: !!shift?.id,
+  const { data: posSales, isLoading: posSalesLoading } = useQuery({
+    queryKey: ['shift-pos-sales', shiftId],
+    queryFn: () => api.get(`/pos/sales/shift/${shiftId}`).then((r) => r.data),
+    enabled: !!shiftId,
+    retry: 1,
   });
 
-  if (!shift) {
+  const { data: fuelPs } = useQuery({
+    queryKey: ['shift-payment-summary', shiftId],
+    queryFn: () => api.get(`/sales/shift/${shiftId}/summary`).then((r) => r.data),
+    enabled: !!shiftId,
+    retry: 1,
+  });
+
+  const { data: posPs } = useQuery({
+    queryKey: ['shift-pos-payment-summary', shiftId],
+    queryFn: () => api.get(`/pos/sales/shift/${shiftId}/summary`).then((r) => r.data),
+    enabled: !!shiftId,
+    retry: 1,
+  });
+
+  if (!shiftId) {
     return (
       <SafeAreaView style={s.safe}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -111,11 +148,38 @@ export function ShiftDetailScreen() {
     );
   }
 
+  if (shiftLoading && !shift) {
+    return (
+      <SafeAreaView style={s.safe}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={Colors.primary} size="large" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const statusCfg = STATUS_CFG[shift.status] ?? STATUS_CFG.open;
   const disc = Number(shift.discrepancy ?? 0);
-  const totalPay = ps
-    ? Number(ps.cash || 0) + Number(ps.card || 0) + Number(ps.credit || 0)
-    : Number(shift.totalRevenue || 0);
+  const hasSummaryData = !!fuelPs || !!posPs;
+  const summaryCash = Number(fuelPs?.cash || 0) + Number(posPs?.cash || 0);
+  const summaryCard = Number(fuelPs?.card || 0) + Number(posPs?.card || 0);
+  const summaryCredit = Number(fuelPs?.credit || 0) + Number(posPs?.credit || 0);
+  const paySummary = {
+    cash: hasSummaryData ? summaryCash : Number(shift.cashRevenue || 0),
+    card: hasSummaryData ? summaryCard : Number(shift.cardRevenue || 0),
+    credit: hasSummaryData ? summaryCredit : Number(shift.creditRevenue || 0),
+    cashCount: Number(fuelPs?.cashCount || 0) + Number(posPs?.cashCount || 0),
+    cardCount: Number(fuelPs?.cardCount || 0) + Number(posPs?.cardCount || 0),
+    creditCount: Number(fuelPs?.creditCount || 0) + Number(posPs?.creditCount || 0),
+  };
+  const totalPay = paySummary.cash + paySummary.card + paySummary.credit;
+
+  const fuelSalesList = (sales || []).map((sale: any) => ({ ...sale, __kind: 'fuel' }));
+  const posSalesList = (posSales || []).map((sale: any) => ({ ...sale, __kind: 'pos' }));
+  const combinedSales = [...fuelSalesList, ...posSalesList].sort(
+    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  const salesSectionLoading = (salesLoading && !sales) || (posSalesLoading && !posSales);
 
   const payMethods = [
     { key: 'cash',   label: t('common.cash'),   ...PM_CFG.cash   },
@@ -228,8 +292,8 @@ export function ShiftDetailScreen() {
             <SectionHeading title={t('shifts.salesBreakdown')} icon="chart-pie" />
             <View style={s.card}>
               {payMethods.map(({ key, label, icon, color, bg }, idx) => {
-                const amt = ps ? Number(ps[key] || 0) : 0;
-                const cnt = ps ? Number(ps[`${key}Count`] || 0) : 0;
+                const amt = Number((paySummary as any)[key] || 0);
+                const cnt = Number((paySummary as any)[`${key}Count`] || 0);
                 const pct = totalPay > 0 ? (amt / totalPay) * 100 : 0;
                 return (
                   <View
@@ -264,11 +328,11 @@ export function ShiftDetailScreen() {
             <SectionHeading
               title={t('shifts.salesRecords')}
               icon="receipt"
-              count={sales?.length ?? 0}
+              count={combinedSales.length}
             />
-            {salesLoading ? (
+            {salesSectionLoading ? (
               <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} />
-            ) : !sales?.length ? (
+            ) : !combinedSales.length ? (
               <View style={s.emptyCard}>
                 <MaterialCommunityIcons
                   name="receipt"
@@ -279,8 +343,9 @@ export function ShiftDetailScreen() {
               </View>
             ) : (
               <View style={s.card}>
-                {sales.map((sale: any, i: number) => {
+                {combinedSales.map((sale: any, i: number) => {
                   const pmCfg = PM_CFG[sale.paymentMethod] ?? PM_CFG.cash;
+                  const isPosSale = sale.__kind === 'pos';
                   return (
                     <View
                       key={sale.id}
@@ -290,12 +355,23 @@ export function ShiftDetailScreen() {
                         <MaterialCommunityIcons name={pmCfg.icon} size={16} color={pmCfg.color} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={[s.saleLiters, { textAlign: !rtl ? 'right' : 'left' }]}>
-                          {Number(sale.liters).toFixed(1)} {t('common.liters')}
-                        </Text>
-                        <Text style={s.salePriceHint}>
-                          {t('common.pricePerLiter')} SAR {Number(sale.pricePerLiter).toFixed(3)}
-                        </Text>
+                        {isPosSale ? (
+                          <>
+                            <Text style={[s.saleLiters, { textAlign: !rtl ? 'right' : 'left' }]}>
+                              {Number(sale.totalItems).toFixed(0)} {t('pos.totalItems', { defaultValue: 'items' }).toLowerCase()}
+                            </Text>
+                            <Text style={s.salePriceHint}>{t('pos.headerLabel', { defaultValue: 'POS' })}</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={[s.saleLiters, { textAlign: !rtl ? 'right' : 'left' }]}>
+                              {Number(sale.liters).toFixed(1)} {t('common.liters')}
+                            </Text>
+                            <Text style={s.salePriceHint}>
+                              {t('common.pricePerLiter')} SAR {Number(sale.pricePerLiter).toFixed(3)}
+                            </Text>
+                          </>
+                        )}
                       </View>
                       <View style={s.saleRightCol}>
                         <Text style={s.saleTime}>

@@ -6,6 +6,7 @@ export enum TransactionCategory {
   TRANSFER = 'transfer',
   EXPENSE = 'expense',
   PURCHASE = 'purchase',
+  POS_SALE = 'pos_sale',
   CREDIT_SALE = 'credit_sale',
   CREDIT_COLLECTION = 'credit_collection',
 }

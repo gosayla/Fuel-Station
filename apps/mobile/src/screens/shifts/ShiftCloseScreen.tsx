@@ -47,7 +47,12 @@ export function ShiftCloseScreen() {
     mutationFn: (body: any) => api.patch(`/shifts/${shift.id}/close`, body).then(r => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
+      queryClient.invalidateQueries({ queryKey: ['shift', shift.id] });
       navigation.goBack();
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['shifts'] });
+      queryClient.invalidateQueries({ queryKey: ['shift', shift.id] });
     },
     onError: (err: any) => {
       showAlert({

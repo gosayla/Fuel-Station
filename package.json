@@ -3,13 +3,13 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
-    "lint": "turbo run lint",
-    "test": "turbo run test",
-    "dev:web": "turbo run dev --filter=web",
-    "dev:backend": "turbo run dev --filter=backend",
-    "dev:mobile": "turbo run dev --filter=mobile"
+    "dev": "node ./node_modules/turbo/bin/turbo run dev",
+    "build": "node ./node_modules/turbo/bin/turbo run build",
+    "lint": "node ./node_modules/turbo/bin/turbo run lint",
+    "test": "node ./node_modules/turbo/bin/turbo run test",
+    "dev:web": "node ./node_modules/turbo/bin/turbo run dev --filter=web",
+    "dev:backend": "node ./node_modules/turbo/bin/turbo run dev --filter=backend",
+    "dev:mobile": "node ./node_modules/turbo/bin/turbo run dev --filter=mobile"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

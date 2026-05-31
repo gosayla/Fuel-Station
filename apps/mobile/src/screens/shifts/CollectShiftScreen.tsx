@@ -155,6 +155,14 @@ export function CollectShiftScreen() {
     queryKey: ['shift-payment-summary', shift?.id],
     queryFn: () => api.get(`/sales/shift/${shift.id}/summary`).then((r) => r.data),
     enabled: !!shift?.id,
+    retry: 1,
+  });
+
+  const { data: posPs, isLoading: posPsLoading } = useQuery({
+    queryKey: ['shift-pos-payment-summary', shift?.id],
+    queryFn: () => api.get(`/pos/sales/shift/${shift.id}/summary`).then((r) => r.data),
+    enabled: !!shift?.id,
+    retry: 1,
   });
 
   const { data: accounts, isLoading: acctLoading } = useQuery({
@@ -163,9 +171,16 @@ export function CollectShiftScreen() {
   });
 
   // ── Derived values ──
-  const expectedCash = ps ? Number(ps.cash ?? 0) : 0;
-  const cardAmount   = ps ? Number(ps.card ?? 0) : 0;
-  const creditAmount = ps ? Number(ps.credit ?? 0) : 0;
+  const hasSummaryData = !!ps || !!posPs;
+  const expectedCash = hasSummaryData
+    ? Number(ps?.cash ?? 0) + Number(posPs?.cash ?? 0)
+    : Number(shift?.cashRevenue ?? 0);
+  const cardAmount = hasSummaryData
+    ? Number(ps?.card ?? 0) + Number(posPs?.card ?? 0)
+    : Number(shift?.cardRevenue ?? 0);
+  const creditAmount = hasSummaryData
+    ? Number(ps?.credit ?? 0) + Number(posPs?.credit ?? 0)
+    : Number(shift?.creditRevenue ?? 0);
   const totalRevenue = expectedCash + cardAmount + creditAmount;
 
   const received     = parseFloat(cashReceived) || 0;
@@ -182,6 +197,10 @@ export function CollectShiftScreen() {
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       navigation.goBack();
       navigation.goBack(); // go back past ShiftDetail too
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['shifts'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
     onError: (err: any) => {
       showAlert({
@@ -210,7 +229,7 @@ export function CollectShiftScreen() {
     });
   };
 
-  const isLoading = psLoading || acctLoading;
+  const isLoading = acctLoading;
 
   if (!shift) {
     return (

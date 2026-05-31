@@ -12,6 +12,7 @@ import { ShiftsModule } from './shifts/shifts.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { ReportsModule } from './reports/reports.module';
+import { PosModule } from './pos/pos.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { ReportsModule } from './reports/reports.module';
     ShiftsModule,
     AccountsModule,
     ExpensesModule,
+    PosModule,
     ReportsModule,
   ],
 })

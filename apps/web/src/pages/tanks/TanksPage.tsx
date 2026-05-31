@@ -79,6 +79,11 @@ function TankModal({ tank, onClose }: { tank?: Tank; onClose: () => void }) {
     mutationFn: (data: TankForm) =>
       tank ? api.patch(`/tanks/${tank.id}`, data) : api.post('/tanks', data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['tanks'] }); onClose(); },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      if (tank?.id) qc.invalidateQueries({ queryKey: ['tank', tank.id] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
   });
 
   return (

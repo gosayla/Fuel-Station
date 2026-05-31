@@ -30,6 +30,12 @@ import { CollectShiftScreen } from '../screens/shifts/CollectShiftScreen';
 import { TankFormScreen } from '../screens/tanks/TankFormScreen';
 import { PurchasesScreen } from '../screens/purchases/PurchasesScreen';
 import { PurchaseFormScreen } from '../screens/purchases/PurchaseFormScreen';
+import { PosScreen } from '../screens/pos/PosScreen';
+import { PosSaleFormScreen } from '../screens/pos/PosSaleFormScreen';
+import { PosItemFormScreen } from '../screens/pos/PosItemFormScreen';
+import { PosRestockFormScreen } from '../screens/pos/PosRestockFormScreen';
+import { ExpensesScreen } from '../screens/expenses/ExpensesScreen';
+import { ExpenseFormScreen } from '../screens/expenses/ExpenseFormScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -40,6 +46,8 @@ const TABS: Record<string, TabDef> = {
   Dashboard: { icon: 'home-outline',         activeIcon: 'home',             labelKey: 'nav.dashboard' },
   Tanks:     { icon: 'gas-station-outline',   activeIcon: 'gas-station',      labelKey: 'nav.tanks'     },
   Sales:     { icon: 'shopping-outline',      activeIcon: 'shopping',         labelKey: 'nav.sales'     },
+  Pos:       { icon: 'point-of-sale',         activeIcon: 'point-of-sale',    labelKey: 'nav.pos'       },
+  Expenses:  { icon: 'receipt',               activeIcon: 'receipt',           labelKey: 'nav.expenses'  },
   Shifts:    { icon: 'clock-outline',         activeIcon: 'clock',            labelKey: 'nav.shifts'    },
   Accounts:  { icon: 'bank-outline',          activeIcon: 'bank',             labelKey: 'nav.accounts'  },
 };
@@ -96,6 +104,8 @@ function TabNavigator() {
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Tanks"     component={TanksScreen}     />
       <Tab.Screen name="Sales"     component={SalesScreen}     />
+      <Tab.Screen name="Pos"       component={PosScreen}       />
+      {!isEmployee && <Tab.Screen name="Expenses" component={ExpensesScreen} />}
       <Tab.Screen name="Shifts"    component={ShiftsScreen}    />
       {!isEmployee && <Tab.Screen name="Accounts"  component={AccountsScreen}  />}
     </Tab.Navigator>
@@ -140,6 +150,10 @@ export function AppNavigator({ onNavigationStateChange }: { onNavigationStateCha
             <Stack.Screen name="TankForm"      component={TankFormScreen}     />
             <Stack.Screen name="Purchases"     component={PurchasesScreen}    />
             <Stack.Screen name="PurchaseForm"  component={PurchaseFormScreen} />
+            <Stack.Screen name="ExpenseForm"   component={ExpenseFormScreen}  />
+            <Stack.Screen name="PosSaleForm"   component={PosSaleFormScreen}  />
+            <Stack.Screen name="PosItemForm"   component={PosItemFormScreen}  />
+            <Stack.Screen name="PosRestockForm" component={PosRestockFormScreen} />
           </>
         )}
       </Stack.Navigator>

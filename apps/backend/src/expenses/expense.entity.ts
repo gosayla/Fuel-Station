@@ -1,6 +1,14 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-export enum ExpenseCategory { SALARY = 'salary', UTILITIES = 'utilities', MAINTENANCE = 'maintenance', FUEL_PURCHASE = 'fuel_purchase', OTHER = 'other' }
+export enum ExpenseCategory {
+  SALARY = 'salary',
+  UTILITIES = 'utilities',
+  MAINTENANCE = 'maintenance',
+  FUEL_PURCHASE = 'fuel_purchase',
+  OFFICE_SUPPLIES = 'office_supplies',
+  CLEANING_SUPPLIES = 'cleaning_supplies',
+  OTHER = 'other',
+}
 
 @Entity('expenses')
 export class Expense {

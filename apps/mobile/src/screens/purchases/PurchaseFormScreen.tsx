@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { showAlert } from '../../lib/alert';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { format } from 'date-fns';
+import { DateTimeField } from '../../lib/DateTimeField';
 import { api } from '../../lib/api';
 import { Colors, Radii, Spacing, Shadows } from '../../theme';
 
@@ -43,9 +43,7 @@ export function PurchaseFormScreen() {
   const [invoiceNumber, setInvoiceNumber]     = useState('');
   const [liters, setLiters]                   = useState('');
   const [pricePerLiter, setPricePerLiter]     = useState('');
-  const [deliveredAt, setDeliveredAt]         = useState(() =>
-    format(new Date(), "yyyy-MM-dd'T'HH:mm"),
-  );
+  const [deliveredAt, setDeliveredAt]         = useState<Date>(new Date());
   // paymentAmounts: { [accountId]: string }
   const [paymentAmounts, setPaymentAmounts]   = useState<Record<string, string>>({});
 
@@ -78,6 +76,11 @@ export function PurchaseFormScreen() {
       queryClient.invalidateQueries({ queryKey: ['tanks'] });
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
       navigation.goBack();
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
     onError: (err: any) => {
       const msg = err.response?.data?.message ?? t('common.error');
@@ -112,11 +115,6 @@ export function PurchaseFormScreen() {
       });
       return;
     }
-    if (!deliveredAt.trim()) {
-      showAlert({ title: t('common.error'), message: t('purchases.deliveredAt'), variant: 'error' });
-      return;
-    }
-
     const payments = Object.entries(paymentAmounts)
       .filter(([, v]) => parseFloat(v) > 0)
       .map(([accountId, v]) => ({ accountId, amount: parseFloat(v) }));
@@ -127,7 +125,7 @@ export function PurchaseFormScreen() {
       invoiceNumber: invoiceNumber.trim() || undefined,
       liters: litersNum,
       pricePerLiter: priceNum,
-      deliveredAt: new Date(deliveredAt).toISOString(),
+      deliveredAt: deliveredAt.toISOString(),
       payments,
     });
   };
@@ -281,17 +279,17 @@ export function PurchaseFormScreen() {
 
         {/* ── Delivery date ── */}
         <Text style={s.label}>{t('purchases.form.deliveryDate')}</Text>
-        <View style={s.inputWrap}>
-          <MaterialCommunityIcons name="calendar-outline" size={18} color={Colors.textMuted} style={s.inputIcon} />
-          <TextInput
-            style={[s.input, { textAlign: rtl ? 'right' : 'left' }]}
-            value={deliveredAt}
-            onChangeText={setDeliveredAt}
-            placeholder="YYYY-MM-DDTHH:mm"
-            placeholderTextColor={Colors.textMuted}
-            autoCapitalize="none"
-          />
-        </View>
+        <DateTimeField
+          value={deliveredAt}
+          onChange={setDeliveredAt}
+          locale={i18n.language}
+          title={t('expenses.pickDateTime', { defaultValue: 'Select date & time' })}
+          confirmText={t('common.save')}
+          cancelText={t('common.cancel')}
+          iconName="calendar-outline"
+          containerStyle={s.inputWrap}
+          valueTextStyle={[s.input, { textAlign: rtl ? 'right' : 'left' }]}
+        />
 
         {/* ── Total cost ── */}
         {totalCost > 0 && (

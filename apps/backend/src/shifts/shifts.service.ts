@@ -69,6 +69,15 @@ export class ShiftsService {
     else if (paymentMethod === 'credit') await this.repo.increment({ id: shiftId }, 'creditRevenue', Number(amount));
   }
 
+  async addPosSaleToShift(shiftId: string, itemsSold: number, amount: number, paymentMethod: string): Promise<void> {
+    await this.repo.increment({ id: shiftId }, 'totalPosItemsSold', Number(itemsSold));
+    await this.repo.increment({ id: shiftId }, 'totalPosRevenue', Number(amount));
+    await this.repo.increment({ id: shiftId }, 'totalRevenue', Number(amount));
+    if (paymentMethod === 'cash') await this.repo.increment({ id: shiftId }, 'cashRevenue', Number(amount));
+    else if (paymentMethod === 'card') await this.repo.increment({ id: shiftId }, 'cardRevenue', Number(amount));
+    else if (paymentMethod === 'credit') await this.repo.increment({ id: shiftId }, 'creditRevenue', Number(amount));
+  }
+
   async findAll(stationId: string, from?: Date, to?: Date): Promise<any[]> {
     const where: any = { stationId };
     if (from && to) where.startedAt = Between(from, to);

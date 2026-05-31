@@ -79,6 +79,9 @@ export function EmployeeFormScreen() {
       qc.invalidateQueries({ queryKey: ['users'] });
       navigation.goBack();
     },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+    },
     onError: (e: any) => {
       showAlert({ title: t('common.error'), message: e.response?.data?.message ?? t('common.errorGeneric'), variant: 'error' });
     },

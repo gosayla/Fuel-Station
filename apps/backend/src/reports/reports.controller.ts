@@ -6,6 +6,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/user.entity';
 
+type DashboardKpiVersion = 'v1' | 'v2';
+
 @ApiTags('Reports')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -15,7 +17,10 @@ export class ReportsController {
   constructor(private readonly service: ReportsService) {}
 
   @Get('dashboard')
-  dashboard(@Request() req: any) { return this.service.getDashboardKpis(req.user.stationId); }
+  dashboard(@Request() req: any, @Query('version') version?: DashboardKpiVersion) {
+    const normalizedVersion = version === 'v2' ? 'v2' : 'v1';
+    return this.service.getDashboardKpis(req.user.stationId, normalizedVersion);
+  }
 
   @Get('sales')
   salesReport(@Request() req: any, @Query('from') from: string, @Query('to') to: string) {
