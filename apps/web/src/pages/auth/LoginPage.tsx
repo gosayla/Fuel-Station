@@ -8,7 +8,6 @@ import { Eye, EyeOff, Fuel, Lock, Mail, Hash } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/auth.store';
 import { LANGUAGE_OPTIONS, type SupportedLanguage } from '@fuel-station/shared';
-import i18n from 'i18next';
 import clsx from 'clsx';
 
 const loginSchema = z.object({
@@ -18,7 +17,7 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
   const [showPassword, setShowPassword] = useState(false);

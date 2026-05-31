@@ -1,9 +1,7 @@
 import axios from 'axios';
-import { Platform } from 'react-native';
 import { useAuthStore } from '../store/auth.store';
 
-const LOCAL_HOST = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
-const BASE_URL = `http://${LOCAL_HOST}:3000/api/v1`;
+const BASE_URL = 'https://fuel.starfishumluj.com/api/v1';
 
 export const api = axios.create({ baseURL: BASE_URL, timeout: 15000 });
 
