@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
-import { Package, TriangleAlert, DollarSign, ShoppingCart, RefreshCw } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Package, TriangleAlert, DollarSign, ShoppingCart, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { api } from '../../lib/api';
 
@@ -40,8 +40,19 @@ const PAYMENT_LABELS: Record<string, string> = {
 export function PosPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const role = useAuthStore((state) => state.user?.role);
   const isManagerLike = role === 'owner' || role === 'manager' || role === 'accountant';
+
+  const deleteItemMutation = useMutation({
+    mutationFn: (itemId: string) => api.delete(`/pos/items/${itemId}`),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['pos-items'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-kpis'] }),
+      ]);
+    },
+  });
 
   const itemsQuery = useQuery<PosItem[]>({
     queryKey: ['pos-items'],
@@ -150,6 +161,7 @@ export function PosPage() {
                     <th className="text-left px-5 py-3">{t('pos.item')}</th>
                     <th className="text-right px-5 py-3">{t('pos.quantity')}</th>
                     <th className="text-right px-5 py-3">{t('common.amount')}</th>
+                    {isManagerLike && <th className="text-right px-5 py-3">{t('common.actions', { defaultValue: 'Actions' })}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -161,11 +173,6 @@ export function PosPage() {
                             <p className="font-medium">{item.name}</p>
                             <p className="text-xs text-text-muted">{item.sku} · {t(`pos.categories.${item.category}`, { defaultValue: item.category })}</p>
                           </div>
-                          {isManagerLike && (
-                            <Link to={`/pos/items/${item.id}`} className="text-xs text-primary hover:underline">
-                              {t('common.edit')}
-                            </Link>
-                          )}
                         </div>
                       </td>
                       <td className="px-5 py-3 text-right">
@@ -174,6 +181,30 @@ export function PosPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-right text-white">SAR {Number(item.unitPrice).toFixed(2)}</td>
+                      {isManagerLike && (
+                        <td className="px-5 py-3 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            <Link to={`/pos/items/${item.id}`} className="text-xs text-primary hover:underline">
+                              {t('common.edit')}
+                            </Link>
+                            <button
+                              type="button"
+                              disabled={deleteItemMutation.isPending}
+                              onClick={() => {
+                                const confirmed = window.confirm(
+                                  t('pos.deleteConfirm', { defaultValue: 'Delete this item from active inventory?' }),
+                                );
+                                if (!confirmed) return;
+                                deleteItemMutation.mutate(item.id);
+                              }}
+                              className="text-xs text-danger hover:underline disabled:opacity-60 inline-flex items-center gap-1"
+                            >
+                              <Trash2 size={12} />
+                              {t('common.delete', { defaultValue: 'Delete' })}
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

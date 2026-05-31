@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, DataSource, In } from 'typeorm';
-import { IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PosItem, PosItemCategory, PosSale, PosSaleLine, PosRestock } from './pos.entity';
 import { PaymentMethod } from '../sales/sale.entity';
@@ -18,12 +18,13 @@ export class CreatePosItemDto {
 }
 
 export class UpdatePosItemDto {
+  @IsOptional() @IsString() sku?: string;
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsEnum(PosItemCategory) category?: PosItemCategory;
   @IsOptional() @IsNumber() @Min(0) quantity?: number;
   @IsOptional() @IsNumber() @Min(0) reorderLevel?: number;
   @IsOptional() @IsNumber() @Min(0.01) unitPrice?: number;
-  @IsOptional() isActive?: boolean;
+  @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
 export class PosSaleLineDto {
@@ -92,7 +93,33 @@ export class PosService {
   async updateItem(stationId: string, id: string, dto: UpdatePosItemDto) {
     const item = await this.itemRepo.findOne({ where: { id, stationId } });
     if (!item) throw new NotFoundException('POS item not found');
-    Object.assign(item, dto);
+
+    if (dto.sku) {
+      const normalizedSku = dto.sku.trim().toUpperCase();
+      const existing = await this.itemRepo.findOne({ where: { stationId, sku: normalizedSku } });
+      if (existing && existing.id !== id) throw new BadRequestException('SKU already exists');
+      item.sku = normalizedSku;
+    }
+
+    if (typeof dto.name === 'string') {
+      item.name = dto.name.trim();
+    }
+
+    if (dto.category !== undefined) item.category = dto.category;
+    if (dto.quantity !== undefined) item.quantity = dto.quantity;
+    if (dto.reorderLevel !== undefined) item.reorderLevel = dto.reorderLevel;
+    if (dto.unitPrice !== undefined) item.unitPrice = dto.unitPrice;
+    if (dto.isActive !== undefined) item.isActive = dto.isActive;
+
+    return this.itemRepo.save(item);
+  }
+
+  async deleteItem(stationId: string, id: string) {
+    const item = await this.itemRepo.findOne({ where: { id, stationId } });
+    if (!item) throw new NotFoundException('POS item not found');
+    if (!item.isActive) return item;
+
+    item.isActive = false;
     return this.itemRepo.save(item);
   }
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Query, UseGuards, Request, Delete } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -29,6 +29,12 @@ export class PosController {
   @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT)
   updateItem(@Param('id') id: string, @Body() dto: UpdatePosItemDto, @Request() req: any) {
     return this.service.updateItem(req.user.stationId, id, dto);
+  }
+
+  @Delete('items/:id')
+  @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  deleteItem(@Param('id') id: string, @Request() req: any) {
+    return this.service.deleteItem(req.user.stationId, id);
   }
 
   @Get('sales')
