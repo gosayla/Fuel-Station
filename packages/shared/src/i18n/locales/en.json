@@ -56,7 +56,9 @@
     "offlineMode": "You are offline — sale will be saved locally",
     "savedOffline": "Saved Offline",
     "savedOfflineMsg": "Sale saved on device. It will upload automatically when you are connected.",
-    "pendingSync": "sale(s) waiting to upload"
+    "pendingSync": "sale(s) waiting to upload",
+    "showing": "Showing",
+    "of": "of"
   },
   "auth": {
     "welcome": "Welcome Back",

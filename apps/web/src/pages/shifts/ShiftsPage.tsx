@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { api } from '../../lib/api';
 import { Play, StopCircle, CheckCheck, Clock, X, User, DollarSign, Banknote, CreditCard, BookOpen } from 'lucide-react';
 import clsx from 'clsx';
+import { Pagination, usePagination } from '@/components/Pagination';
 
 
 interface Shift {
@@ -212,6 +213,8 @@ export function ShiftsPage() {
   const openShifts = shifts.filter(s => s.status === 'open');
   const closedShifts = shifts.filter(s => s.status !== 'open');
 
+  const { page, setPage, totalPages, paged: pagedShifts, start, end } = usePagination(shifts, 10);
+
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -234,7 +237,7 @@ export function ShiftsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {shifts.map(shift => (
+          {pagedShifts.map(shift => (
             <div
               key={shift.id}
               onClick={() => navigate(`/shifts/${shift.id}`)}
@@ -286,6 +289,7 @@ export function ShiftsPage() {
               </div>
             </div>
           ))}
+          <Pagination page={page} totalPages={totalPages} start={start} end={end} total={shifts.length} onPageChange={setPage} />
         </div>
       )}
 

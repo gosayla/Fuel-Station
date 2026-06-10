@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 export function usePagination<T>(items: T[], pageSize: number) {
@@ -36,6 +37,9 @@ interface PaginationProps {
 }
 
 export function Pagination({ page, totalPages, start, end, total, onPageChange }: PaginationProps) {
+  const { t, i18n } = useTranslation();
+  const rtl = i18n.dir() === 'rtl';
+  
   if (totalPages <= 1) return null;
 
   // Build visible page numbers: always show first, last, current ±1, with '…' gaps
@@ -51,7 +55,7 @@ export function Pagination({ page, totalPages, start, end, total, onPageChange }
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-3 border-t border-border">
       <p className="text-xs text-text-muted order-2 sm:order-1">
-        Showing <span className="text-white font-medium">{start + 1}–{end}</span> of{' '}
+        {t('common.showing')} <span className="text-white font-medium">{start + 1}–{end}</span> {t('common.of')}{' '}
         <span className="text-white font-medium">{total}</span>
       </p>
 
@@ -61,7 +65,7 @@ export function Pagination({ page, totalPages, start, end, total, onPageChange }
           disabled={page === 1}
           className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-secondary hover:text-white hover:border-border-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          <ChevronLeft size={14} />
+          {rtl ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
 
         {pages.map((p, i) =>
@@ -90,7 +94,7 @@ export function Pagination({ page, totalPages, start, end, total, onPageChange }
           disabled={page === totalPages}
           className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-secondary hover:text-white hover:border-border-light disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
-          <ChevronRight size={14} />
+          {rtl ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
         </button>
       </div>
     </div>
