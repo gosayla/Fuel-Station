@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Sale, PaymentMethod } from './sale.entity';
@@ -6,6 +6,7 @@ import { TanksService } from '../tanks/tanks.service';
 import { ShiftsService } from '../shifts/shifts.service';
 import { CreditLedgerEntry, CreditLedgerType } from '../accounts/account.entity';
 import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { Shift, ShiftStatus } from 'src/shifts/shift.entity';
 
 export class CreateSaleDto {
   @IsNotEmpty() @IsString() tankId: string;
@@ -25,14 +26,15 @@ export class SalesService {
   ) {}
 
   async create(stationId: string, employeeId: string, dto: CreateSaleDto): Promise<Sale> {
-    // If shiftId provided, use it directly; otherwise find open shift for this employee or any open shift for the station
     let shift = dto.shiftId
       ? await this.shiftsService.getShiftById(dto.shiftId)
       : await this.shiftsService.getOpenShift(employeeId) ||
         await this.shiftsService.getAnyOpenShift(stationId);
     if (!shift) throw new BadRequestException('No open shift. Start a shift first.');
+    
     const totalAmount = Number(dto.liters) * Number(dto.pricePerLiter);
     await this.tanksService.deductFuel(dto.tankId, dto.liters);
+    
     const sale = this.repo.create({
       tankId: dto.tankId,
       liters: dto.liters,
@@ -43,6 +45,7 @@ export class SalesService {
       shiftId: shift.id,
       totalAmount,
     });
+    
     await this.shiftsService.addSaleToShift(shift.id, dto.liters, totalAmount, dto.paymentMethod || PaymentMethod.CASH);
     const saved = await this.repo.save(sale);
 
@@ -101,5 +104,61 @@ export class SalesService {
       totalRevenue: sales.reduce((s, x) => s + Number(x.totalAmount), 0),
       cashRevenue: sales.filter(x => x.paymentMethod === 'cash').reduce((s, x) => s + Number(x.totalAmount), 0),
     };
+  }
+
+  async remove(id: string) {
+    // 1. Fixed: Changed this.saleRepo.manager to this.repo.manager
+    return await this.repo.manager.transaction(async (entityManager) => {
+      
+      const sale = await entityManager.findOne(Sale, { where: { id } });
+      if (!sale) {
+        throw new NotFoundException('Sale record not found');
+      }
+
+      const shift = await entityManager.findOne(Shift, { where: { id: sale.shiftId } });
+      if (!shift) {
+        throw new NotFoundException('Associated shift not found for this sale');
+      }
+
+      // Re-enforce your required structural guardrail rule
+      if (shift.status !== ShiftStatus.OPEN) {
+        throw new BadRequestException('Cannot delete a sale from a shift that is closed or reconciled.');
+      }
+
+      // 2. Revert physical stock back to the tank before deletion
+      if (typeof this.tanksService.returnFuel === 'function') {
+        await this.tanksService.returnFuel(sale.tankId, sale.liters);
+      } else {
+        // Fallback if your TanksService uses a different naming convention:
+        // Make sure to add a corresponding adjustment method inside your TanksService!
+        await this.tanksService.deductFuel(sale.tankId, -Number(sale.liters));
+      }
+
+      // 3. If it was a credit transaction, wipe the customer ledger entry charge
+      if (sale.paymentMethod === PaymentMethod.CREDIT) {
+        await entityManager.delete(CreditLedgerEntry, { saleId: sale.id });
+      }
+
+      // 4. Reverse / Decrement the aggregated shift statistics counters
+      shift.totalLitersSold = Number(shift.totalLitersSold) - Number(sale.liters);
+      shift.totalRevenue = Number(shift.totalRevenue) - Number(sale.totalAmount);
+
+      if (sale.paymentMethod === PaymentMethod.CASH) {
+        shift.cashRevenue = Number(shift.cashRevenue) - Number(sale.totalAmount);
+      } else if (sale.paymentMethod === PaymentMethod.CARD) {
+        shift.cardRevenue = Number(shift.cardRevenue) - Number(sale.totalAmount);
+      } else if (sale.paymentMethod === PaymentMethod.CREDIT) {
+        shift.creditRevenue = Number(shift.creditRevenue) - Number(sale.totalAmount);
+      }
+
+      // 5. Commit entity updates and delete the target sale row
+      await entityManager.save(Shift, shift);
+      await entityManager.remove(Sale, sale);
+
+      return {
+        success: true,
+        message: 'Sale record deleted successfully, inventory returned, and shift metrics updated.',
+      };
+    });
   }
 }

@@ -113,4 +113,49 @@ export class ShiftsService {
     const shifts = await this.repo.find({ where, order: { startedAt: 'DESC' } });
     return this.enrichWithNames(shifts);
   }
+
+  async unmarkReconciled(id: string): Promise<void> {
+    // Sets the status flag configuration back to closed
+    await this.repo.update(id, { status: ShiftStatus.CLOSED });
+  }
+
+  async reopenShift(shiftId: string): Promise<Shift> {
+    const shift = await this.repo.findOne({ where: { id: shiftId } });
+    if (!shift) throw new NotFoundException('Shift record not found');
+    
+    // ⚠️ Hardened Guard Clause
+    if (shift.status !== ShiftStatus.CLOSED) {
+      throw new BadRequestException(
+        `Cannot reopen this shift. Status is currently '${shift.status}'. Only closed shifts can be reopened. Reconciled shifts must be reversed first.`
+      );
+    }
+
+    // Reset closing metrics cleanly
+    shift.status = ShiftStatus.OPEN;
+    shift.closedAt = null;
+    shift.actualCash = null;
+    shift.expectedCash = 0;
+    shift.discrepancy = null;
+
+    return this.repo.save(shift);
+  }
+
+  async deleteShift(shiftId: string): Promise<void> {
+    const shift = await this.repo.findOne({ where: { id: shiftId } });
+    if (!shift) {
+      throw new NotFoundException('Shift record not found');
+    }
+
+    // Protection Guard: Ensure no activity exists on this shift
+    const hasRevenue = Number(shift.totalRevenue) > 0 || Number(shift.totalPosRevenue) > 0;
+    const hasVolume = Number(shift.totalLitersSold) > 0 || Number(shift.totalPosItemsSold) > 0;
+
+    if (hasRevenue || hasVolume) {
+      throw new BadRequestException(
+        'Cannot delete this shift because it contains recorded transactions or sales activity.'
+      );
+    }
+
+    await this.repo.remove(shift);
+  }  
 }

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AccountsService, CreateAccountDto, TransferDto, CollectCashDto, CollectCreditDto } from './accounts.service';
+import { AccountsService, CreateAccountDto, TransferDto, CollectCashDto, CollectCreditDto, ReverseCollectCashDto } from './accounts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -26,6 +26,11 @@ export class AccountsController {
 
   @Post('collect')
   collectCash(@Body() dto: CollectCashDto, @Request() req: any) { return this.service.collectCash(req.user.stationId, req.user.sub, dto); }
+
+  @Post('reverse-collect')
+  reverseCollectCash(@Body() dto: ReverseCollectCashDto, @Request() req: any) { 
+    return this.service.reverseCollectCash(req.user.stationId, req.user.sub, dto); 
+  }
 
   @Get('credit-summary')
   getCreditSummary(@Request() req: any) { return this.service.getCreditSummary(req.user.stationId); }

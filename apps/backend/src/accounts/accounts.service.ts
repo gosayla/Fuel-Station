@@ -37,6 +37,11 @@ export class CollectCashDto {
   @IsOptional() @IsString() notes?: string;
 }
 
+export class ReverseCollectCashDto {
+  @IsNotEmpty() @IsString() shiftId: string;
+  @IsNotEmpty() @IsString() notes: string;
+}
+
 export class CollectCreditDto {
   @IsNotEmpty() @IsString() toAccountId: string;
   @IsEnum(PaymentMethod) paymentMethod: PaymentMethod;
@@ -248,6 +253,7 @@ export class AccountsService {
       }),
     );
 
+   
     return {
       message: 'Credit collected successfully',
       ledgerId: ledger.id,
@@ -255,4 +261,82 @@ export class AccountsService {
       paymentMethod: dto.paymentMethod,
     };
   }
+
+   async reverseCollectCash(stationId: string, createdBy: string, dto: ReverseCollectCashDto) {
+    // Use a transaction to ensure all database writes succeed or roll back together
+    return await this.accountRepo.manager.transaction(async (entityManager) => {
+      
+      // 1. Locate the collection log row
+      const collection = await entityManager.findOne(CashCollection, {
+        where: { shiftId: dto.shiftId, stationId }, // <-- Change made here
+      });
+      if (!collection) {
+        throw new NotFoundException('Collection record not found for this shift');
+      }
+
+      // 2. Revert Safe Account Balance (Deduct the received cash amount)
+      const cashAccount = await entityManager.findOne(Account, { where: { id: collection.toAccountId } });
+      if (!cashAccount) {
+        throw new NotFoundException('Associated cash safe account not found');
+      }
+      cashAccount.balance = Number(cashAccount.balance) - Number(collection.amountReceived);
+      await entityManager.save(Account, cashAccount);
+
+      // 3. Revert Bank Account Balance (Deduct card amount if it was processed)
+      let bankAccount: Account | null = null;
+      if (collection.bankAccountId && Number(collection.cardAmount) > 0) {
+        bankAccount = await entityManager.findOne(Account, { where: { id: collection.bankAccountId } });
+        if (!bankAccount) {
+          throw new NotFoundException('Associated bank account not found');
+        }
+        bankAccount.balance = Number(bankAccount.balance) - Number(collection.cardAmount);
+        await entityManager.save(Account, bankAccount);
+      }
+
+      // 4. Record Counter-Balancing Ledger Entries (DEBIT adjustments)
+      const txs = [
+        entityManager.create(AccountTransaction, {
+          accountId: collection.toAccountId,
+          type: TransactionType.DEBIT, // Changing type to debit to reduce balance
+          category: TransactionCategory.COLLECTION,
+          amount: collection.amountReceived,
+          referenceId: collection.id,
+          notes: `REVERSAL: ${dto.notes}`,
+          createdBy,
+        }),
+      ];
+
+      if (bankAccount && Number(collection.cardAmount) > 0) {
+        txs.push(
+          entityManager.create(AccountTransaction, {
+            accountId: collection.bankAccountId,
+            type: TransactionType.DEBIT,
+            category: TransactionCategory.COLLECTION,
+            amount: collection.cardAmount,
+            referenceId: collection.id,
+            notes: `REVERSAL: ${dto.notes}`,
+            createdBy,
+          }),
+        );
+      }
+      await entityManager.save(AccountTransaction, txs);
+
+      // 5. Change the Shift status back to CLOSED
+      // Note: Add 'unmarkReconciled' to your ShiftsService to run: repo.update(id, { status: ShiftStatus.CLOSED })
+      if (typeof this.shiftsService.unmarkReconciled === 'function') {
+        await this.shiftsService.unmarkReconciled(dto.shiftId);
+      } else {
+        throw new BadRequestException('ShiftsService must implement an unmarkReconciled method.');
+      }
+
+      // 6. Purge the CashCollection record to clear the queue
+      await entityManager.remove(CashCollection, collection);
+
+      return {
+        message: 'Shift collection reversed successfully',
+        shiftId: dto.shiftId,
+      };
+    });
+  }
+
 }

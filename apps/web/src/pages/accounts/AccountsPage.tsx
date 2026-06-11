@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '../../lib/api';
-import { ArrowLeftRight, HandCoins, X, Wallet, TrendingUp, TrendingDown, Banknote, CreditCard, Receipt, CheckCircle, AlertTriangle, BookOpen, FileText, ArrowDownLeft, ArrowUpRight, ChevronRight } from 'lucide-react';
+import { ArrowLeftRight, HandCoins, X, Wallet, TrendingUp, TrendingDown, Banknote, CreditCard, Receipt, CheckCircle, AlertTriangle, BookOpen, FileText, ArrowDownLeft, ArrowUpRight, ChevronRight, RotateCcw } from 'lucide-react';
 import clsx from 'clsx';
 import { usePagination, Pagination } from '../../components/Pagination';
 
@@ -465,6 +465,7 @@ function CollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () 
   );
 }
 
+
 const creditCollectSchema = z.object({
   paymentMethod: z.enum(['cash', 'card']),
   toAccountId: z.string().min(1, 'Select destination account'),
@@ -582,6 +583,214 @@ function CollectCreditModal({ accounts, onClose }: { accounts: Account[]; onClos
   );
 }
 
+
+// ── Reverse Collect Cash Modal ─────────────────────────────────────────────────
+const reverseCollectSchema = z.object({
+  shiftId: z.string().min(1, 'Select a collected shift'),
+  notes: z.string().min(3, 'Provide a reason for reversal (min 3 characters)'),
+});
+type ReverseCollectForm = z.infer<typeof reverseCollectSchema>;
+
+function ReverseCollectModal({ accounts, onClose }: { accounts: Account[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { t, i18n } = useTranslation();
+  
+  // Fetch shifts and filter for those already 'collected'
+  const { data: shifts = [] } = useQuery<Shift[]>({ 
+    queryKey: ['shifts'], 
+    queryFn: () => api.get('/shifts').then(r => r.data) 
+  });
+  const collectedShifts = (shifts as Shift[]).filter(s => s.status === 'reconciled');
+
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<ReverseCollectForm>({ 
+    resolver: zodResolver(reverseCollectSchema) 
+  });
+  
+  const selectedShiftId = watch('shiftId');
+
+  // Fetch the shift summaries to show the user what will be reversed
+  const { data: fuelSummary } = useQuery<PaymentSummary>({
+    queryKey: ['shift-summary', selectedShiftId],
+    queryFn: () => api.get(`/sales/shift/${selectedShiftId}/summary`).then(r => r.data),
+    enabled: !!selectedShiftId,
+  });
+
+  const { data: posSummary } = useQuery<PosPaymentSummary>({
+    queryKey: ['shift-pos-summary', selectedShiftId],
+    queryFn: () => api.get(`/pos/sales/shift/${selectedShiftId}/summary`).then(r => r.data),
+    enabled: !!selectedShiftId,
+  });
+
+  const combinedSummary = {
+    cash: Number(fuelSummary?.cash ?? 0) + Number(posSummary?.cash ?? 0),
+    card: Number(fuelSummary?.card ?? 0) + Number(posSummary?.card ?? 0),
+    cashCount: Number(fuelSummary?.cashCount ?? 0) + Number(posSummary?.cashCount ?? 0),
+    cardCount: Number(fuelSummary?.cardCount ?? 0) + Number(posSummary?.cardCount ?? 0),
+  };
+
+  const mutation = useMutation({
+    mutationFn: (d: ReverseCollectForm) => api.post('/accounts/reverse-collect', {
+      shiftId: d.shiftId,
+      notes: d.notes,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      onClose();
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['transactions'] });
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      if (selectedShiftId) {
+        qc.invalidateQueries({ queryKey: ['shift', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-sales', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-summary', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-pos-sales', selectedShiftId] });
+        qc.invalidateQueries({ queryKey: ['shift-pos-summary', selectedShiftId] });
+      }
+    },
+  });
+
+  const onSubmit = (d: ReverseCollectForm) => {
+    mutation.mutate(d);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <RotateCcw size={18} className="text-danger" /> 
+            {t('accounts.reverseCollectTitle', { defaultValue: 'Reverse Collection' })}
+          </h2>
+          <button onClick={onClose}>
+            <X size={20} className="text-text-muted hover:text-white" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-4">
+          
+          {/* Shift Select */}
+          <div>
+            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">
+              {t('accounts.collectedShift', { defaultValue: 'Collected Shift' })}
+            </label>
+            <select 
+              {...register('shiftId')} 
+              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-danger"
+            >
+              <option value="">{t('common.selectShift')}</option>
+              {collectedShifts.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.employeeName || s.employeeId} — {new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date((s as any).startedAt || Date.now()))}
+                </option>
+              ))}
+            </select>
+            {collectedShifts.length === 0 && (
+              <p className="text-warning text-xs mt-1">{t('accounts.noCollectedShifts', { defaultValue: 'No collected shifts available to reverse' })}</p>
+            )}
+            {errors.shiftId && <p className="text-danger text-xs mt-1">{errors.shiftId.message}</p>}
+          </div>
+
+          {/* Warning Banner */}
+          {selectedShiftId && (
+            <div className="bg-danger/10 border border-danger/20 text-danger rounded-xl p-3 text-sm flex gap-2.5 items-start">
+              <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">{t('common.warning', { defaultValue: 'Attention' })}</p>
+                <p className="text-xs opacity-90 mt-0.5">
+                  {t('accounts.reverseWarningText', { defaultValue: 'This action will reverse the transaction and deduct the amounts shown below from their respective safe and bank accounts.' })}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Reversal Breakdown (Read-only Summary) */}
+          {selectedShiftId && (
+            <div className="bg-bg-primary rounded-xl overflow-hidden border border-border opacity-80">
+              <div className="px-3 py-2 border-b border-border bg-bg-secondary/50">
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                  {t('accounts.amountsToDeduct', { defaultValue: 'Amounts to Deduct' })}
+                </p>
+              </div>
+
+              {/* Cash Deduction */}
+              <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/50">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-danger/10 flex items-center justify-center">
+                    <Banknote size={14} className="text-danger" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">{t('accounts.cashFromSafe', { defaultValue: 'Deduct from Safe' })}</p>
+                    <p className="text-xs text-text-muted">{combinedSummary.cashCount} {t('accounts.salesCount')}</p>
+                  </div>
+                </div>
+                <span className="text-danger font-bold text-sm">-SAR {Number(combinedSummary.cash).toFixed(2)}</span>
+              </div>
+
+              {/* Card Deduction */}
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-danger/10 flex items-center justify-center">
+                    <CreditCard size={14} className="text-danger" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">{t('accounts.cardFromBank', { defaultValue: 'Deduct from Bank' })}</p>
+                    <p className="text-xs text-text-muted">{combinedSummary.cardCount} {t('accounts.salesCount')}</p>
+                  </div>
+                </div>
+                <span className="text-danger font-bold text-sm">-SAR {Number(combinedSummary.card).toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Reason for Reversal */}
+          <div>
+            <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">
+              {t('accounts.reversalReason', { defaultValue: 'Reason for Reversal' })}
+            </label>
+            <input 
+              {...register('notes')} 
+              placeholder={t('accounts.reversalReasonPlaceholder', { defaultValue: 'e.g., Wrong safe selected, cash discrepancy error' })}
+              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-danger" 
+            />
+            {errors.notes && <p className="text-danger text-xs mt-1">{errors.notes.message}</p>}
+          </div>
+
+          {/* Server Error Handling */}
+          {mutation.isError && (
+            <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
+              {(mutation.error as any)?.response?.data?.message || 'Error executing reversal'}
+            </p>
+          )}
+
+          {/* Form Actions */}
+          <div className="flex gap-3 pt-2">
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="flex-1 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:text-white transition-all"
+            >
+              {t('common.close')}
+            </button>
+            <button 
+              type="submit" 
+              disabled={mutation.isPending || collectedShifts.length === 0} 
+              className="flex-1 py-2.5 bg-danger text-white font-semibold rounded-lg text-sm hover:bg-danger/90 disabled:opacity-60 transition-all"
+            >
+              {mutation.isPending ? t('common.saving') : t('accounts.reverseButton', { defaultValue: 'Confirm Reversal' })}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export function AccountsPage() {
   const { t, i18n } = useTranslation();
@@ -589,6 +798,7 @@ export function AccountsPage() {
   const [transferModal, setTransferModal] = useState(false);
   const [collectModal, setCollectModal] = useState(false);
   const [collectCreditModal, setCollectCreditModal] = useState(false);
+  const [reverseCollectModal, setReverseCollectModal] = useState(false);
   const [statementAccount, setStatementAccount] = useState<Account | null>(null);
 
   const { data: accounts = [], isLoading } = useQuery<Account[]>({
@@ -623,6 +833,12 @@ export function AccountsPage() {
           </button>
           <button onClick={() => setTransferModal(true)} className="flex items-center gap-2 bg-bg-card border border-border text-text-secondary hover:text-white hover:border-border-light font-semibold px-4 py-2.5 rounded-xl text-sm transition-all">
             <ArrowLeftRight size={16} /> {t('accounts.transferFunds')}
+          </button>
+          <button 
+            onClick={() => setReverseCollectModal(true)} 
+            className="flex items-center gap-2 bg-danger/10 border border-danger/20 text-danger hover:bg-danger/20 font-semibold px-4 py-2.5 rounded-xl text-sm transition-all"
+          >
+            <RotateCcw size={16} /> {t('accounts.reverseCollectTitle', { defaultValue: 'Reverse Collection' })}
           </button>
         </div>
       </div>
@@ -691,6 +907,7 @@ export function AccountsPage() {
       {transferModal && <TransferModal accounts={accounts} onClose={() => setTransferModal(false)} />}
       {collectModal && <CollectModal accounts={accounts} onClose={() => setCollectModal(false)} />}
       {collectCreditModal && <CollectCreditModal accounts={accounts} onClose={() => setCollectCreditModal(false)} />}
+      {reverseCollectModal && <ReverseCollectModal accounts={accounts} onClose={() => setReverseCollectModal(false)} />}
       {statementAccount && <StatementDrawer account={statementAccount} onClose={() => setStatementAccount(null)} />}
     </div>
   );

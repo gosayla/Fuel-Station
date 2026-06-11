@@ -7,6 +7,7 @@ import { PosItem, PosItemCategory, PosSale, PosSaleLine, PosRestock } from './po
 import { PaymentMethod } from '../sales/sale.entity';
 import { ShiftsService } from '../shifts/shifts.service';
 import { Account, AccountTransaction, CreditLedgerEntry, CreditLedgerType, TransactionCategory, TransactionType } from '../accounts/account.entity';
+import { Shift, ShiftStatus } from '../shifts/shift.entity';
 
 export class CreatePosItemDto {
   @IsNotEmpty() @IsString() sku: string;
@@ -336,5 +337,68 @@ export class PosService {
     }
 
     return summary;
+  }
+
+  async removeSale(stationId: string, id: string) {
+    // Run everything inside an atomic transaction block
+    return await this.dataSource.transaction(async (manager) => {
+      
+      // 1. Locate the POS sale record
+      const sale = await manager.findOne(PosSale, { where: { id, stationId } });
+      if (!sale) {
+        throw new NotFoundException('POS sale record not found');
+      }
+
+      // 2. Fetch the corresponding shift
+      const shift = await manager.findOne(Shift, { where: { id: sale.shiftId } });
+      if (!shift) {
+        throw new NotFoundException('Associated shift not found for this sale');
+      }
+
+      // 3. Strict Safety Guardrail: Shift must be open to delete items
+      if (shift.status !== ShiftStatus.OPEN) {
+        throw new BadRequestException('Cannot delete a POS sale from a shift that is closed or reconciled.');
+      }
+
+      // 4. Find all lines for this sale and RESTOCK item quantities back to inventory
+      const lines = await manager.find(PosSaleLine, { where: { posSaleId: sale.id } });
+      
+      for (const line of lines) {
+        const item = await manager.findOne(PosItem, { where: { id: line.posItemId, stationId } });
+        if (item) {
+          // Increase the item stock amount back up
+          item.quantity = Number(item.quantity) + Number(line.quantity);
+          await manager.save(PosItem, item);
+        }
+      }
+
+      // 5. Clean up the customer's outstanding credit ledger if applicable
+      if (sale.paymentMethod === PaymentMethod.CREDIT) {
+        await manager.delete(CreditLedgerEntry, { saleId: sale.id });
+      }
+
+      // 6. Revert and decrease the aggregated shift statistics counters
+      shift.totalPosItemsSold = Number(shift.totalPosItemsSold) - Number(sale.totalItems);
+      shift.totalPosRevenue = Number(shift.totalPosRevenue) - Number(sale.totalAmount);
+      shift.totalRevenue = Number(shift.totalRevenue) - Number(sale.totalAmount);
+
+      if (sale.paymentMethod === PaymentMethod.CASH) {
+        shift.cashRevenue = Number(shift.cashRevenue) - Number(sale.totalAmount);
+      } else if (sale.paymentMethod === PaymentMethod.CARD) {
+        shift.cardRevenue = Number(shift.cardRevenue) - Number(sale.totalAmount);
+      } else if (sale.paymentMethod === PaymentMethod.CREDIT) {
+        shift.creditRevenue = Number(shift.creditRevenue) - Number(sale.totalAmount);
+      }
+
+      // 7. Save updated shift metrics and drop the sales lines and main invoice record
+      await manager.save(Shift, shift);
+      await manager.remove(PosSaleLine, lines);
+      await manager.remove(PosSale, sale);
+
+      return {
+        success: true,
+        message: 'POS sale record deleted, item quantities restocked, and shift metrics updated successfully.',
+      };
+    });
   }
 }

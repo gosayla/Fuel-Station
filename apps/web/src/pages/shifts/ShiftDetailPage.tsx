@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'; // Added useMutation & useQueryClient
 import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/api';
 import {
@@ -10,10 +10,13 @@ import {
   CreditCard,
   BookOpen,
   TrendingUp,
+  Trash2,
+  Unlock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
 import { usePagination, Pagination } from '../../components/Pagination';
+import { useState } from 'react';
 
 interface Shift {
   id: string;
@@ -126,6 +129,9 @@ export function ShiftDetailPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === 'rtl';
+  const qc = useQueryClient();
+  const [showReopenAlert, setShowReopenAlert] = useState(false);
+  const [saleToDelete, setSaleToDelete] = useState<{ id: string; source: 'fuel' | 'pos' } | null>(null);
 
   const { data: shift, isLoading: shiftLoading } = useQuery<Shift>({
     queryKey: ['shift', id],
@@ -170,6 +176,43 @@ export function ShiftDetailPage() {
     queryKey: ['tanks'],
     queryFn: () => api.get('/tanks').then((r) => r.data),
   });
+
+  // Deletion Mutation Handler
+  const deleteSaleMutation = useMutation({
+    mutationFn: ({ saleId, source }: { saleId: string; source: 'fuel' | 'pos' }) => {
+      const endpoint = source === 'fuel' ? `/sales/${saleId}` : `/pos/sales/${saleId}`;
+      return api.delete(endpoint);
+    },
+    onSuccess: () => {
+      // Refresh all shift details and data grids asynchronously
+      qc.invalidateQueries({ queryKey: ['shift', id] });
+      qc.invalidateQueries({ queryKey: ['shift-sales', id] });
+      qc.invalidateQueries({ queryKey: ['shift-pos-sales', id] });
+      qc.invalidateQueries({ queryKey: ['shift-pos-summary', id] });
+    },
+  });
+
+  // Reopen Shift Mutation Handler
+  const reopenShiftMutation = useMutation({
+    mutationFn: () => api.post(`/shifts/${id}/reopen`),
+    onSuccess: () => {
+      // Refresh the shift state grid to reflect the "open" status immediately
+      qc.invalidateQueries({ queryKey: ['shift', id] });
+    },
+  });
+
+  const handleReopenShift = () => {
+    const confirmationText = t('shifts.confirmReopen', { 
+      defaultValue: 'Are you sure you want to reopen this shift? This will clear closure balances until it is closed again.' 
+    });
+    if (window.confirm(confirmationText)) {
+      reopenShiftMutation.mutate();
+    }
+  };
+
+  const handleDeleteSale = (saleId: string, source: 'fuel' | 'pos') => {
+    setSaleToDelete({ id: saleId, source });
+  };
 
   const tankMap = Object.fromEntries(tanks.map((t) => [t.id, t]));
 
@@ -286,6 +329,18 @@ export function ShiftDetailPage() {
             {durationStr}
           </p>
         </div>
+
+        {/* Reopen Shift Action Button Trigger */}
+        {shift.status === 'closed' && (
+          <button
+            onClick={() => setShowReopenAlert(true)} // <-- Changed to trigger custom alert UI
+            disabled={reopenShiftMutation.isPending}
+            className="flex items-center gap-2 bg-warning/10 border border-warning/20 text-warning hover:bg-warning/20 font-semibold px-4 py-2 rounded-xl text-sm transition-all self-start sm:self-center"
+          >
+            <Unlock size={14} />
+            {t('shifts.reopenButton', { defaultValue: 'Reopen Shift' })}
+          </button>
+        )}
       </div>
 
       {/* Revenue cards */}
@@ -418,6 +473,8 @@ export function ShiftDetailPage() {
                   <th className="text-right px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide">
                     {t('common.payment')}
                   </th>
+                  {/* Action Column Head */}
+                  {shift.status === 'open' && <th className="px-5 py-3 text-xs w-10" />}
                 </tr>
               </thead>
               <tbody>
@@ -427,7 +484,7 @@ export function ShiftDetailPage() {
                     <tr
                       key={sale.id}
                       className={clsx(
-                        'border-b border-border/50 hover:bg-bg-secondary/50 transition-colors',
+                        'border-b border-border/50 hover:bg-bg-secondary/50 transition-colors group',
                         idx === pagedSales.length - 1 && 'border-b-0',
                       )}
                     >
@@ -461,6 +518,19 @@ export function ShiftDetailPage() {
                           {sale.paymentMethod}
                         </span>
                       </td>
+                      {/* Action Cell Row Button */}
+                      {shift.status === 'open' && (
+                        <td className="px-5 py-3 text-center">
+                          <button
+                            onClick={() => handleDeleteSale(sale.id, sale.source)}
+                            disabled={deleteSaleMutation.isPending}
+                            className="text-text-muted hover:text-danger disabled:opacity-40 p-1.5 rounded-lg transition-colors hover:bg-danger/10"
+                            title={t('common.delete', { defaultValue: 'Delete' })}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -480,6 +550,8 @@ export function ShiftDetailPage() {
                     SAR {totalSalesAmount.toFixed(2)}
                   </td>
                   <td />
+                  {/* Empty Footer Cell to maintain column grid alignment */}
+                  {shift.status === 'open' && <td />}
                 </tr>
               </tfoot>
             </table>
@@ -487,6 +559,115 @@ export function ShiftDetailPage() {
           </div>
         )}
       </div>
+      {/* ── Custom Reopen Confirmation Alert UI ───────────────────────────────── */}
+      {showReopenAlert && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+            
+            {/* Header Alert Title Row */}
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-warning/10 flex items-center justify-center shrink-0 text-warning">
+                <Unlock size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold text-white">
+                  {t('shifts.reopenAlertTitle', { defaultValue: 'Reopen Shift?' })}
+                </h3>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  {t('shifts.reopenAlertSubtitle', { defaultValue: 'Unlocks mutations for this shift' })}
+                </p>
+              </div>
+            </div>
+
+            {/* Explanatory Message Block */}
+            <p className="text-sm text-text-muted leading-relaxed">
+              {t('shifts.confirmReopenText', {
+                defaultValue: 'Are you sure you want to reopen this shift? This will clear all closure balances and financial metrics until the shift is finalized again.',
+              })}
+            </p>
+
+            {/* Action Buttons Footer Block */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowReopenAlert(false)}
+                className="flex-1 py-2 border border-border rounded-lg text-sm font-medium text-text-secondary hover:text-white transition-all bg-transparent"
+              >
+                {t('common.cancel', { defaultValue: 'Cancel' })}
+              </button>
+              
+              <button
+                type="button"
+                disabled={reopenShiftMutation.isPending}
+                onClick={() => {
+                  reopenShiftMutation.mutate();
+                  setShowReopenAlert(false); // Auto-dismiss overlay layout tree
+                }}
+                className="flex-1 py-2 bg-warning text-bg-primary font-semibold rounded-lg text-sm hover:bg-warning/90 disabled:opacity-60 transition-all shadow-lg"
+              >
+                {reopenShiftMutation.isPending ? t('common.saving') : t('shifts.confirmAction', { defaultValue: 'Confirm Reopen' })}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+      {/* ── Custom Delete Sale Confirmation Alert UI ─────────────────────────── */}
+      {saleToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+            
+            {/* Header / Title Row */}
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-danger/10 flex items-center justify-center shrink-0 text-danger">
+                <Trash2 size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold text-white">
+                  {t('shifts.deleteSaleAlertTitle', { defaultValue: 'Delete Sale Record?' })}
+                </h3>
+                <p className="text-xs text-text-secondary mt-0.5">
+                  {t('shifts.deleteSaleAlertSubtitle', { defaultValue: 'This action cannot be undone' })}
+                </p>
+              </div>
+            </div>
+
+            {/* Warning Message Box */}
+            <p className="text-sm text-text-muted leading-relaxed">
+              {t('shifts.confirmDeleteSaleText', {
+                defaultValue: 'Are you sure you want to delete this sale record? This will permanently erase the transaction record and decrease the aggregated shift revenue counters.',
+              })}
+            </p>
+
+            {/* Action Buttons Footer */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setSaleToDelete(null)}
+                className="flex-1 py-2 border border-border rounded-lg text-sm font-medium text-text-secondary hover:text-white transition-all bg-transparent"
+              >
+                {t('common.cancel', { defaultValue: 'Cancel' })}
+              </button>
+              
+              <button
+                type="button"
+                disabled={deleteSaleMutation.isPending}
+                onClick={() => {
+                  deleteSaleMutation.mutate({ 
+                    saleId: saleToDelete.id, 
+                    source: saleToDelete.source 
+                  });
+                  setSaleToDelete(null); // Close the modal
+                }}
+                className="flex-1 py-2 bg-danger text-white font-semibold rounded-lg text-sm hover:bg-danger/90 disabled:opacity-60 transition-all shadow-lg"
+              >
+                {deleteSaleMutation.isPending ? t('common.saving') : t('common.delete', { defaultValue: 'Delete' })}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

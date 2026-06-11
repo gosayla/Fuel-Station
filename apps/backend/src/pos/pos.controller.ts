@@ -67,6 +67,13 @@ export class PosController {
     return this.service.createSale(req.user.stationId, req.user.sub, dto);
   }
 
+  // ── NEW: DELETE POS SALE ENDPOINT ───────────────────────────────────────────
+  @Delete('sales/:id')
+  @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  removeSale(@Param('id') id: string, @Request() req: any) {
+    return this.service.removeSale(req.user.stationId, id);
+  }
+
   @Get('restocks')
   @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT)
   findRestocks(@Request() req: any, @Query('from') from?: string, @Query('to') to?: string) {

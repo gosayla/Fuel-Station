@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ShiftsService, OpenShiftDto, CloseShiftDto } from './shifts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -67,5 +67,20 @@ export class ShiftsController {
   @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT)
   reconcile(@Param('id') id: string) {
     return this.service.markReconciled(id);
+  }
+
+  @Post(':id/reopen')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.OWNER, UserRole.MANAGER, UserRole.ACCOUNTANT)
+  async reopenShift(@Param('id') id: string) {
+    return this.service.reopenShift(id);
+  }
+
+  @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  async deleteShift(@Param('id') id: string) {
+    await this.service.deleteShift(id);
+    return { success: true };
   }
 }

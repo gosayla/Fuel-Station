@@ -6,10 +6,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '../../lib/api';
-import { Play, StopCircle, CheckCheck, Clock, X, User, DollarSign, Banknote, CreditCard, BookOpen } from 'lucide-react';
+import { Play, StopCircle, CheckCheck, Clock, X, User, DollarSign, Banknote, CreditCard, BookOpen, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { Pagination, usePagination } from '@/components/Pagination';
-
 
 interface Shift {
   id: string;
@@ -141,8 +140,6 @@ function CloseShiftModal({ shift, onClose }: { shift: Shift; onClose: () => void
           <button onClick={onClose}><X size={20} className="text-text-muted hover:text-white" /></button>
         </div>
         <form onSubmit={handleSubmit(d => mutation.mutate(d))} className="p-5 space-y-4">
-
-          {/* Revenue breakdown */}
           <div className="bg-bg-primary rounded-xl overflow-hidden border border-border">
             <div className="px-3 py-2 border-b border-border">
               <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">{t('shifts.salesBreakdown')}</p>
@@ -196,18 +193,72 @@ function CloseShiftModal({ shift, onClose }: { shift: Shift; onClose: () => void
   );
 }
 
+// ── New Delete Confirmation Alert Modal ───────────────────────────────────────
+interface DeleteShiftModalProps {
+  onClose: () => void;
+  onConfirm: () => void;
+  isPending: boolean;
+}
+
+function DeleteShiftModal({ onClose, onConfirm, isPending }: DeleteShiftModalProps) {
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-sm shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Trash2 size={18} className="text-danger" /> Delete Shift
+          </h2>
+          <button onClick={onClose}><X size={20} className="text-text-muted hover:text-white" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-text-secondary leading-relaxed">
+            Are you sure you want to delete this empty shift? This action is permanent and cannot be undone.
+          </p>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:text-white transition-all">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={isPending}
+              className="flex-1 py-2.5 bg-danger text-white font-semibold rounded-lg text-sm hover:bg-danger/90 disabled:opacity-60 transition-colors"
+            >
+              {isPending ? 'Deleting...' : 'Confirm Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export function ShiftsPage() {
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === 'rtl';
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [openModal, setOpenModal] = useState(false);
   const [closeShift, setCloseShift] = useState<Shift | null>(null);
+  const [deleteShiftId, setDeleteShiftId] = useState<string | null>(null); // State tracking target shift to delete
 
   const { data: shifts = [], isLoading } = useQuery<Shift[]>({
     queryKey: ['shifts'],
     queryFn: () => api.get('/shifts').then(r => r.data),
     refetchInterval: 30_000,
+  });
+
+  const deleteShiftMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/shifts/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+      setDeleteShiftId(null);
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.message || 'Failed to delete shift');
+    }
   });
 
   const openShifts = shifts.filter(s => s.status === 'open');
@@ -278,12 +329,28 @@ export function ShiftsPage() {
                 <span className={clsx('text-xs font-semibold px-2.5 py-1 rounded-full border', STATUS_STYLES[shift.status])}>
                   {t(`shifts.status.${shift.status}`)}
                 </span>
+                
                 {shift.status === 'open' && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setCloseShift(shift); }}
                     className="flex items-center gap-1.5 bg-warning/10 hover:bg-warning/20 text-warning border border-warning/20 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
                   >
                     <StopCircle size={13} /> {t('shifts.close')}
+                  </button>
+                )}
+
+                {/* Render Trash Icon UI trigger only if metrics equal 0 */}
+                {Number(shift.totalRevenue) === 0 && Number(shift.totalLitersSold) === 0 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteShiftId(shift.id); // Triggers our custom Alert UI instead of window.confirm
+                    }}
+                    disabled={deleteShiftMutation.isPending}
+                    className="flex items-center justify-center p-2 bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20 rounded-lg transition-all disabled:opacity-50"
+                    title="Delete Empty Shift"
+                  >
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
@@ -295,6 +362,15 @@ export function ShiftsPage() {
 
       {openModal && <OpenShiftModal onClose={() => setOpenModal(false)} />}
       {closeShift && <CloseShiftModal shift={closeShift} onClose={() => setCloseShift(null)} />}
+      
+      {/* Conditionally Render Custom Delete Confirmation Alert Modal */}
+      {deleteShiftId && (
+        <DeleteShiftModal 
+          onClose={() => setDeleteShiftId(null)} 
+          onConfirm={() => deleteShiftMutation.mutate(deleteShiftId)}
+          isPending={deleteShiftMutation.isPending}
+        />
+      )}
     </div>
   );
 }

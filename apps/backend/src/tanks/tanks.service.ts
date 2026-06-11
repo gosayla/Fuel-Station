@@ -80,6 +80,21 @@ export class TanksService {
     return this.repo.save(tank);
   }
 
+  async returnFuel(id: string, liters: number): Promise<Tank> {
+    const tank = await this.findById(id);
+    const newLevel = Number(tank.currentLevelLiters) + Number(liters);
+
+    // Safeguard: Make sure returning the fuel doesn't break physical bounds
+    if (newLevel > Number(tank.capacityLiters)) {
+      throw new BadRequestException(
+        `Cannot return fuel; calculation exceeds tank capacity limit (${tank.capacityLiters}L).`,
+      );
+    }
+
+    tank.currentLevelLiters = newLevel;
+    return this.repo.save(tank);
+  }
+
   getLowTanks(stationId: string): Promise<Tank[]> {
     return this.repo
       .createQueryBuilder('tank')

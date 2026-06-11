@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SalesService, CreateSaleDto } from './sales.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,5 +40,10 @@ export class SalesController {
   @Post()
   create(@Body() dto: CreateSaleDto, @Request() req: any) {
     return this.service.create(req.user.stationId, req.user.sub, dto);
+  }
+
+  @Delete(':id') // 2. Added the DELETE route mapping
+  remove(@Param('id') id: string) {
+    return this.service.remove(id);
   }
 }
