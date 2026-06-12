@@ -114,8 +114,6 @@
     "alerts": "Alerts",
     "pendingReconciliation": "Pending reconciliation",
     "belowThreshold": "Below threshold — order fuel",
-    "openShifts": "{{count}} Open Shift(s)",
-    "lowTanks": "{{count}} Low Tank(s)",
     "safeCash": "Safe (Cash)",
     "weeklyRevenue": "Weekly Revenue",
     "profitMargin": "Profit Margin",

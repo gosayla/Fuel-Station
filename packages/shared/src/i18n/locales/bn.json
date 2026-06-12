@@ -112,8 +112,6 @@
     "alerts": "সতর্কতা",
     "pendingReconciliation": "মিলকরণ বাকি",
     "belowThreshold": "সীমার নিচে — জ্বালানি অর্ডার করুন",
-    "openShifts": "{{count}} খোলা শিফট",
-    "lowTanks": "{{count}} কম ট্যাংক",
     "safeCash": "সেফ (নগদ)",
     "weeklyRevenue": "সাপ্তাহিক আয়",
     "profitMargin": "লাভের মার্জিন",

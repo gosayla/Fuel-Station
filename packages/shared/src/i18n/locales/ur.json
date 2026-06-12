@@ -113,8 +113,6 @@
     "alerts": "الرٹ",
     "pendingReconciliation": "ملاپ زیر التوا",
     "belowThreshold": "حد سے کم — اینیہن آرڈر کریں",
-    "openShifts": "{{count}} کھلی شفٹ",
-    "lowTanks": "{{count}} کم ٹینک",
     "safeCash": "تجوری (نقد)",
     "weeklyRevenue": "ہفتہ وار آمدنی",
     "profitMargin": "منافع کا مارجن",

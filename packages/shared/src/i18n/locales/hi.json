@@ -113,8 +113,6 @@
     "alerts": "सतर्कता",
     "pendingReconciliation": "समाधान लंबित",
     "belowThreshold": "सीमा से नीचे — ईंधन ओर्डर करें",
-    "openShifts": "{{count}} खुली पाली",
-    "lowTanks": "{{count}} कम टैंक",
     "safeCash": "तिजोरी (नकद)",
     "weeklyRevenue": "साप्ताहिक राजस्व",
     "profitMargin": "लाभ मार्जिन",
