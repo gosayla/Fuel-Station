@@ -206,6 +206,13 @@
       "overpaid": "Overpaid by: SAR {{n}}",
       "paid": "Paid: SAR {{n}}"
     }
+    ,
+    "deleteModal": {
+      "title": "Delete Purchase",
+      "body": "Are you sure you want to delete this purchase? This will refund accounts and adjust tank levels.",
+      "deleting": "Deleting...",
+      "confirm": "Delete"
+    }
   },
   "sales": {
     "title": "Sales",

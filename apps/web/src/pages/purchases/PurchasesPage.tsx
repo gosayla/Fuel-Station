@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '../../lib/api';
-import { Plus, Truck, X, Package, Droplets, DollarSign, Wallet, Trash2, PlusCircle } from 'lucide-react';
+import { Plus, Truck, X, Package, Droplets, DollarSign, Wallet, Trash2, PlusCircle, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
 import { usePagination, Pagination } from '../../components/Pagination';
@@ -60,11 +60,11 @@ const purchaseSchema = z.object({
 type PurchaseForm = z.infer<typeof purchaseSchema>;
 
 // ── Add Purchase Modal ────────────────────────────────────────────────────────
-function AddPurchaseModal({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
+function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void; purchase?: Purchase; onSaved?: (p: Purchase) => void }) {
   const { t } = useTranslation();
   const [payments, setPayments] = useState<PaymentLine[]>([{ accountId: '', amount: '' }]);
 
+  const qc = useQueryClient();
   const { data: tanks = [] } = useQuery<Tank[]>({
     queryKey: ['tanks'],
     queryFn: () => api.get('/tanks').then((r) => r.data),
@@ -75,12 +75,43 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
     queryFn: () => api.get('/accounts').then((r) => r.data),
   });
 
-  const { register, handleSubmit, watch, formState: { errors } } = useForm<PurchaseForm>({
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<PurchaseForm>({
     resolver: zodResolver(purchaseSchema),
     defaultValues: {
       deliveredAt: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
     },
   });
+
+  // populate form when editing
+  useEffect(() => {
+    if (purchase) {
+      const delivered = purchase.deliveredAt ? (() => {
+        try { return format(new Date(purchase.deliveredAt), "yyyy-MM-dd'T'HH:mm"); } catch { return format(new Date(), "yyyy-MM-dd'T'HH:mm"); }
+      })() : format(new Date(), "yyyy-MM-dd'T'HH:mm");
+
+      reset({
+        tankId: purchase.tankId ?? '',
+        supplierName: purchase.supplierName ?? '',
+        invoiceNumber: purchase.invoiceNumber ?? undefined,
+        liters: (purchase.liters ?? '') as any,
+        pricePerLiter: (purchase.pricePerLiter ?? '') as any,
+        deliveredAt: delivered,
+      });
+      setPayments([{ accountId: '', amount: '' }]);
+    }
+  }, [purchase, reset]);
+
+  // preload payments when editing
+  useEffect(() => {
+    if (purchase?.id) {
+      api.get(`/purchases/${purchase.id}/payments`).then((r) => {
+        const data = r.data as { accountId: string; amount: number }[];
+        if (data && data.length) setPayments(data.map((d) => ({ accountId: d.accountId, amount: String(d.amount) })));
+      }).catch(() => {
+        // ignore; user can re-enter payments
+      });
+    }
+  }, [purchase?.id]);
 
   const liters = Number(watch('liters')) || 0;
   const pricePerLiter = Number(watch('pricePerLiter')) || 0;
@@ -95,6 +126,9 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
 
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const remaining = totalCost - totalPaid;
+  const hasValidPayment = payments.some((p) => p.accountId && Number(p.amount) > 0);
+  const paymentsMatch = totalCost === 0 ? true : Math.abs(remaining) < 0.01;
+  const showPaymentValidation = payments.some((p) => p.accountId || p.amount) && (!hasValidPayment || !paymentsMatch);
 
   const addPaymentLine = () => setPayments((p) => [...p, { accountId: '', amount: '' }]);
   const removePaymentLine = (i: number) => setPayments((p) => p.filter((_, idx) => idx !== i));
@@ -103,7 +137,7 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
 
   const ACCOUNT_TYPE_LABELS: Record<string, string> = { safe: 'Safe', bank: 'Bank', credit: 'Credit' };
 
-  const mutation = useMutation({
+  const createMutation = useMutation({
     mutationFn: (d: PurchaseForm) =>
       api.post('/purchases', {
         ...d,
@@ -116,6 +150,30 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ['tanks'] });
       qc.invalidateQueries({ queryKey: ['accounts'] });
       onClose();
+      onSaved?.(null as any);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (d: PurchaseForm) =>
+      api.patch(`/purchases/${purchase?.id}`, {
+        ...d,
+        payments: payments
+          .filter((p) => p.accountId && Number(p.amount) > 0)
+          .map((p) => ({ accountId: p.accountId, amount: Number(p.amount) })),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      onClose();
+      onSaved?.(null as any);
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['purchases'] });
@@ -137,7 +195,14 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="p-5 space-y-4">
+        <form
+          onSubmit={handleSubmit((d) => {
+            if (!hasValidPayment || !paymentsMatch) return;
+            if (purchase) updateMutation.mutate(d);
+            else createMutation.mutate(d);
+          })}
+          className="p-5 space-y-4"
+        >
           {/* Tank */}
           <div>
             <label className="text-xs font-semibold text-text-secondary uppercase tracking-wide block mb-1.5">
@@ -362,11 +427,26 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
                 </span>
               </div>
             )}
+
+            {showPaymentValidation && (
+              <div className="mt-2">
+                {!hasValidPayment && (
+                  <p className="text-danger text-xs">
+                    Select a payment account and enter an amount before saving the purchase.
+                  </p>
+                )}
+                {hasValidPayment && !paymentsMatch && (
+                  <p className="text-danger text-xs">
+                    Payment total must equal the purchase total (SAR {totalCost.toFixed(2)}).
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          {mutation.isError && (
+          {(createMutation.isError || updateMutation.isError) && (
             <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">
-              {(mutation.error as any)?.response?.data?.message || 'Something went wrong'}
+              {(createMutation.error as any)?.response?.data?.message || (updateMutation.error as any)?.response?.data?.message || 'Something went wrong'}
             </p>
           )}
 
@@ -380,13 +460,13 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="submit"
-              disabled={mutation.isPending || overCapacity || payments.some((p) => {
+              disabled={(purchase ? updateMutation.isPending : createMutation.isPending) || overCapacity || !hasValidPayment || !paymentsMatch || payments.some((p) => {
                 const acct = accounts.find((a) => a.id === p.accountId);
                 return acct && Number(p.amount) > 0 && Number(p.amount) > Number(acct.balance);
               })}
               className="flex-1 py-2.5 bg-primary text-bg-primary font-semibold rounded-lg text-sm hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              {mutation.isPending ? t('common.saving') : t('purchases.logDelivery')}
+              {(purchase ? updateMutation.isPending : createMutation.isPending) ? t('common.saving') : t('purchases.logDelivery')}
             </button>
           </div>
         </form>
@@ -395,11 +475,12 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
 export function PurchasesPage() {
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === 'rtl';
+  const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
 
   const { data: purchases = [], isLoading } = useQuery<Purchase[]>({
     queryKey: ['purchases'],
@@ -411,12 +492,71 @@ export function PurchasesPage() {
     queryFn: () => api.get('/tanks').then((r) => r.data),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/purchases/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['tanks'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-kpis'] });
+      setDeletePurchaseId(null);
+    },
+  });
+
+  const [deletePurchaseId, setDeletePurchaseId] = useState<string | null>(null);
+
   const tankMap = Object.fromEntries(tanks.map((t) => [t.id, t]));
 
   const totalLiters = purchases.reduce((s, p) => s + Number(p.liters), 0);
   const totalCost = purchases.reduce((s, p) => s + Number(p.totalCost), 0);
 
   const { page, setPage, totalPages, paged: pagedPurchases, start, end } = usePagination(purchases, 10);
+
+  const handleEdit = async (id: string) => {
+    try {
+      const res = await api.get(`/purchases/${id}`);
+      setEditingPurchase(res.data);
+      setShowModal(true);
+    } catch (err) {
+      // fallback: find in current list
+      const found = purchases.find((p) => p.id === id) ?? null;
+      setEditingPurchase(found);
+      setShowModal(true);
+    }
+  };
+
+  function DeletePurchaseModal({ onClose, onConfirm, isPending }: { onClose: () => void; onConfirm: () => void; isPending: boolean }) {
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+        <div className="bg-bg-secondary border border-border rounded-2xl w-full max-w-sm shadow-2xl animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between p-5 border-b border-border">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Trash2 size={18} className="text-danger" /> {t('purchases.deleteModal.title')}
+            </h2>
+            <button onClick={onClose}><X size={20} className="text-text-muted hover:text-white" /></button>
+          </div>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-text-secondary leading-relaxed">
+              {t('purchases.deleteModal.body')}
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-border rounded-lg text-sm text-text-secondary hover:text-white transition-all">
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={isPending}
+                className="flex-1 py-2.5 bg-danger text-white font-semibold rounded-lg text-sm hover:bg-danger/90 disabled:opacity-60"
+              >
+                {isPending ? t('purchases.deleteModal.deleting') : t('purchases.deleteModal.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 animate-fade-in">
@@ -427,7 +567,7 @@ export function PurchasesPage() {
           <p className="text-text-secondary text-sm mt-0.5">{t('purchases.deliveriesRecorded', { n: purchases.length })}</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => { setEditingPurchase(null); setShowModal(true); }}
           className="flex items-center gap-2 bg-primary text-bg-primary font-semibold px-4 py-2.5 rounded-xl text-sm hover:bg-primary/90 transition-all shrink-0"
         >
           <Plus size={16} /> {t('purchases.addPurchase')}
@@ -516,6 +656,22 @@ export function PurchasesPage() {
                         {p.invoiceNumber}
                       </span>
                     )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { handleEdit(p.id); }}
+                        title={t('common.edit')}
+                        className="p-1.5 rounded-lg text-text-secondary hover:text-white hover:bg-bg-tertiary transition-colors"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => { setDeletePurchaseId(p.id); }}
+                        title={t('common.delete')}
+                        className="p-1.5 rounded-lg text-text-secondary hover:text-danger hover:bg-danger/10 transition-colors"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -533,6 +689,7 @@ export function PurchasesPage() {
                     <th className={`${rtl ? 'text-left' : 'text-right'} px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide`}>{t('sales.liters')}</th>
                     <th className={`${rtl ? 'text-left' : 'text-right'} px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide`}>{t('common.pricePerLiter')}</th>
                     <th className={`${rtl ? 'text-left' : 'text-right'} px-5 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wide`}>{t('purchases.table.totalCost')}</th>
+                    <th className="px-5 py-3" />
                   </tr>
                 </thead>
                 <tbody>
@@ -580,6 +737,24 @@ export function PurchasesPage() {
                         <td className={`px-5 py-3 ${rtl ? 'text-left' : 'text-right'} font-semibold text-white tabular-nums`}>
                           SAR {Number(p.totalCost).toFixed(2)}
                         </td>
+                        <td className="px-5 py-3 text-right">
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => { handleEdit(p.id); }}
+                              title={t('common.edit')}
+                              className="p-1.5 rounded-lg text-text-secondary hover:text-white hover:bg-bg-tertiary transition-colors"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              onClick={() => { setDeletePurchaseId(p.id); }}
+                              title={t('common.delete')}
+                              className="p-1.5 rounded-lg text-text-secondary hover:text-danger hover:bg-danger/10 transition-colors"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -591,7 +766,14 @@ export function PurchasesPage() {
         )}
       </div>
 
-      {showModal && <AddPurchaseModal onClose={() => setShowModal(false)} />}
+      {showModal && <AddPurchaseModal onClose={() => setShowModal(false)} purchase={editingPurchase ?? undefined} onSaved={() => { setShowModal(false); setEditingPurchase(null); }} />}
+      {deletePurchaseId && (
+        <DeletePurchaseModal
+          onClose={() => setDeletePurchaseId(null)}
+          onConfirm={() => deleteMutation.mutate(deletePurchaseId!)}
+          isPending={deleteMutation.isPending}
+        />
+      )}
     </div>
   );
 }

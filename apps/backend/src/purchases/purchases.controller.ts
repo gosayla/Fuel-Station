@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, Request, Patch, Delete } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { PurchasesService, CreatePurchaseDto } from './purchases.service';
+import { PurchasesService, CreatePurchaseDto, UpdatePurchaseDto } from './purchases.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -33,5 +33,23 @@ export class PurchasesController {
   @Roles(UserRole.OWNER, UserRole.MANAGER)
   create(@Body() dto: CreatePurchaseDto, @Request() req: any) {
     return this.service.create(req.user.stationId, req.user.sub, dto);
+  }
+
+  @Get(':id/payments')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  getPayments(@Param('id') id: string) {
+    return this.service.getPaymentsForPurchase(id);
+  }
+
+  @Patch(':id')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  update(@Param('id') id: string, @Body() dto: UpdatePurchaseDto, @Request() req: any) {
+    return this.service.update(req.user.stationId, req.user.sub, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.OWNER, UserRole.MANAGER)
+  remove(@Param('id') id: string, @Request() req: any) {
+    return this.service.remove(req.user.stationId, req.user.sub, id);
   }
 }

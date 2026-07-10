@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { Tank } from './tank.entity';
 import { IsNotEmpty, IsNumber, IsEnum, IsOptional, IsString, IsBoolean, Min } from 'class-validator';
 import { FuelType } from './tank.entity';
@@ -56,8 +56,10 @@ export class TanksService {
     return this.repo.save(tank);
   }
 
-  async addFuel(id: string, liters: number): Promise<Tank> {
-    const tank = await this.findById(id);
+  async addFuel(id: string, liters: number, manager?: EntityManager): Promise<Tank> {
+    const repo = manager ? manager.getRepository(Tank) : this.repo;
+    const tank = await repo.findOne({ where: { id } });
+    if (!tank) throw new NotFoundException('Tank not found');
     const newLevel = Number(tank.currentLevelLiters) + Number(liters);
     if (newLevel > Number(tank.capacityLiters)) {
       throw new BadRequestException(
@@ -65,11 +67,13 @@ export class TanksService {
       );
     }
     tank.currentLevelLiters = newLevel;
-    return this.repo.save(tank);
+    return repo.save(tank);
   }
 
-  async deductFuel(id: string, liters: number): Promise<Tank> {
-    const tank = await this.findById(id);
+  async deductFuel(id: string, liters: number, manager?: EntityManager): Promise<Tank> {
+    const repo = manager ? manager.getRepository(Tank) : this.repo;
+    const tank = await repo.findOne({ where: { id } });
+    if (!tank) throw new NotFoundException('Tank not found');
     const newLevel = Number(tank.currentLevelLiters) - Number(liters);
     if (newLevel < 0) {
       throw new BadRequestException(
@@ -77,11 +81,13 @@ export class TanksService {
       );
     }
     tank.currentLevelLiters = newLevel;
-    return this.repo.save(tank);
+    return repo.save(tank);
   }
 
-  async returnFuel(id: string, liters: number): Promise<Tank> {
-    const tank = await this.findById(id);
+  async returnFuel(id: string, liters: number, manager?: EntityManager): Promise<Tank> {
+    const repo = manager ? manager.getRepository(Tank) : this.repo;
+    const tank = await repo.findOne({ where: { id } });
+    if (!tank) throw new NotFoundException('Tank not found');
     const newLevel = Number(tank.currentLevelLiters) + Number(liters);
 
     // Safeguard: Make sure returning the fuel doesn't break physical bounds
@@ -92,7 +98,7 @@ export class TanksService {
     }
 
     tank.currentLevelLiters = newLevel;
-    return this.repo.save(tank);
+    return repo.save(tank);
   }
 
   getLowTanks(stationId: string): Promise<Tank[]> {
