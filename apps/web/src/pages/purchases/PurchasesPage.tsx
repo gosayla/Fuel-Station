@@ -119,8 +119,15 @@ function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void;
   const selectedTankId = watch('tankId');
 
   const selectedTank = tanks.find((t) => t.id === selectedTankId);
+  const originalTankId = purchase?.tankId;
+  const originalLiters = purchase ? Number(purchase.liters || 0) : 0;
+
+  const adjustedCurrentLevel = selectedTank
+    ? Number(selectedTank.currentLevelLiters) - (selectedTank.id === originalTankId ? originalLiters : 0)
+    : 0;
+
   const availableSpace = selectedTank
-    ? Number(selectedTank.capacityLiters) - Number(selectedTank.currentLevelLiters)
+    ? Number(selectedTank.capacityLiters) - Math.max(0, adjustedCurrentLevel)
     : null;
   const overCapacity = availableSpace !== null && liters > 0 && liters > availableSpace;
 
