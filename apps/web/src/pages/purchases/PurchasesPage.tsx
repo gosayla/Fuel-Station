@@ -134,8 +134,15 @@ function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void;
   const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const remaining = totalCost - totalPaid;
   const hasValidPayment = payments.some((p) => p.accountId && Number(p.amount) > 0);
+  const selectedAccountCounts = payments
+    .filter((p) => p.accountId)
+    .reduce<Record<string, number>>((acc, p) => {
+      acc[p.accountId] = (acc[p.accountId] || 0) + 1;
+      return acc;
+    }, {});
+  const hasDuplicatePaymentAccounts = Object.values(selectedAccountCounts).some((count) => count > 1);
   const paymentsMatch = totalCost === 0 ? true : Math.abs(remaining) < 0.01;
-  const showPaymentValidation = payments.some((p) => p.accountId || p.amount) && (!hasValidPayment || !paymentsMatch);
+  const showPaymentValidation = payments.some((p) => p.accountId || p.amount) && (!hasValidPayment || !paymentsMatch || hasDuplicatePaymentAccounts);
 
   const addPaymentLine = () => setPayments((p) => [...p, { accountId: '', amount: '' }]);
   const removePaymentLine = (i: number) => setPayments((p) => p.filter((_, idx) => idx !== i));
@@ -363,11 +370,14 @@ function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void;
                           className="flex-1 min-w-0 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary transition-colors"
                         >
                           <option value="">Select account…</option>
-                          {accounts.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.name} ({ACCOUNT_TYPE_LABELS[a.type] ?? a.type}) — SAR {Number(a.balance).toFixed(2)}
-                            </option>
-                          ))}
+                          {accounts.map((a) => {
+                            const isSelectedElsewhere = a.id !== line.accountId && selectedAccountCounts[a.id] > 0;
+                            return (
+                              <option key={a.id} value={a.id} disabled={isSelectedElsewhere}>
+                                {a.name} ({ACCOUNT_TYPE_LABELS[a.type] ?? a.type}) — SAR {Number(a.balance).toFixed(2)}
+                              </option>
+                            );
+                          })}
                         </select>
                         {payments.length > 1 && (
                           <button
@@ -405,6 +415,11 @@ function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void;
                     {overBalance && (
                       <p className="text-danger text-xs pl-1">
                         Insufficient balance — available: SAR {Number(acct!.balance).toFixed(2)}
+                      </p>
+                    )}
+                    {line.accountId && selectedAccountCounts[line.accountId] > 1 && (
+                      <p className="text-danger text-xs pl-1">
+                        {t('purchases.form.duplicateAccount')}
                       </p>
                     )}
                   </div>
@@ -447,6 +462,11 @@ function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void;
                     Payment total must equal the purchase total (SAR {totalCost.toFixed(2)}).
                   </p>
                 )}
+                {hasDuplicatePaymentAccounts && (
+                  <p className="text-danger text-xs">
+                    {t('purchases.form.duplicateAccount')}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -467,7 +487,7 @@ function AddPurchaseModal({ onClose, purchase, onSaved }: { onClose: () => void;
             </button>
             <button
               type="submit"
-              disabled={(purchase ? updateMutation.isPending : createMutation.isPending) || overCapacity || !hasValidPayment || !paymentsMatch || payments.some((p) => {
+              disabled={(purchase ? updateMutation.isPending : createMutation.isPending) || overCapacity || !hasValidPayment || !paymentsMatch || hasDuplicatePaymentAccounts || payments.some((p) => {
                 const acct = accounts.find((a) => a.id === p.accountId);
                 return acct && Number(p.amount) > 0 && Number(p.amount) > Number(acct.balance);
               })}
@@ -784,3 +804,5 @@ export function PurchasesPage() {
     </div>
   );
 }
+
+export default PurchasesPage;
